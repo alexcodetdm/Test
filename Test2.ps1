@@ -479,3 +479,198 @@ file6.txt   =>
 Для больших массивов метод с -notcontains может быть медленнее
 
 Функция Compare-ArrayLists предоставляет наиболее читаемый результат
+
+Вот несколько способов добавить имена файлов из папки в System.Collections.ArrayList:
+
+1. Базовый способ (самый простой)
+powershell
+# Создаем ArrayList
+$fileList = [System.Collections.ArrayList]@()
+
+# Получаем имена файлов и добавляем в ArrayList
+Get-ChildItem -Path "C:\Your\Folder" -File | ForEach-Object {
+    [void]$fileList.Add($_.Name)
+}
+
+# Выводим результат
+$fileList
+2. Компактная версия
+powershell
+$fileList = [System.Collections.ArrayList]@(
+    (Get-ChildItem -Path "C:\Your\Folder" -File).Name
+)
+
+$fileList
+3. С обработкой ошибок
+powershell
+$folderPath = "C:\Your\Folder"
+$fileList = [System.Collections.ArrayList]@()
+
+try {
+    if (Test-Path $folderPath -PathType Container) {
+        $files = Get-ChildItem -Path $folderPath -File -ErrorAction Stop
+        
+        foreach ($file in $files) {
+            [void]$fileList.Add($file.Name)
+        }
+        
+        Write-Host "Добавлено файлов: $($fileList.Count)" -ForegroundColor Green
+    }
+    else {
+        Write-Warning "Папка $folderPath не существует!"
+    }
+}
+catch {
+    Write-Error "Ошибка: $($_.Exception.Message)"
+}
+
+$fileList
+4. С рекурсивным поиском (включая подпапки)
+powershell
+$fileList = [System.Collections.ArrayList]@()
+
+Get-ChildItem -Path "C:\Your\Folder" -File -Recurse | ForEach-Object {
+    [void]$fileList.Add($_.Name)
+}
+
+$fileList
+5. С фильтрацией по расширению
+powershell
+$fileList = [System.Collections.ArrayList]@()
+
+# Только txt файлы
+Get-ChildItem -Path "C:\Your\Folder" -Filter "*.txt" -File | ForEach-Object {
+    [void]$fileList.Add($_.Name)
+}
+
+$fileList
+6. С дополнительной информацией о файлах
+powershell
+$fileList = [System.Collections.ArrayList]@()
+
+Get-ChildItem -Path "C:\Your\Folder" -File | ForEach-Object {
+    # Создаем объект с информацией о файле
+    $fileInfo = @{
+        Name = $_.Name
+        Size = $_.Length
+        LastModified = $_.LastWriteTime
+        Extension = $_.Extension
+    }
+    
+    [void]$fileList.Add($fileInfo)
+}
+
+# Выводим результат
+$fileList | ForEach-Object {
+    Write-Host "Файл: $($_.Name), Размер: $($_.Size) байт, Расширение: $($_.Extension)"
+}
+7. С сортировкой по имени
+powershell
+$fileList = [System.Collections.ArrayList]@()
+
+Get-ChildItem -Path "C:\Your\Folder" -File | 
+Sort-Object Name | 
+ForEach-Object {
+    [void]$fileList.Add($_.Name)
+}
+
+$fileList
+8. Универсальная функция
+powershell
+function Get-FileListToArrayList {
+    param(
+        [string]$Path = ".",
+        [switch]$Recursive,
+        [string]$Filter = "*",
+        [switch]$FullName
+    )
+    
+    $fileList = [System.Collections.ArrayList]@()
+    $params = @{
+        Path = $Path
+        Filter = $Filter
+        File = $true
+    }
+    
+    if ($Recursive) {
+        $params.Recurse = $true
+    }
+    
+    try {
+        $files = Get-ChildItem @params -ErrorAction Stop
+        
+        foreach ($file in $files) {
+            if ($FullName) {
+                [void]$fileList.Add($file.FullName)
+            }
+            else {
+                [void]$fileList.Add($file.Name)
+            }
+        }
+    }
+    catch {
+        Write-Error "Ошибка при получении списка файлов: $($_.Exception.Message)"
+    }
+    
+    return $fileList
+}
+
+# Использование функции
+$files = Get-FileListToArrayList -Path "C:\Your\Folder" -Recursive
+$files
+9. С исключением определенных файлов
+powershell
+$fileList = [System.Collections.ArrayList]@()
+$excludeExtensions = @('.tmp', '.log', '.bak')
+
+Get-ChildItem -Path "C:\Your\Folder" -File | ForEach-Object {
+    if ($excludeExtensions -notcontains $_.Extension) {
+        [void]$fileList.Add($_.Name)
+    }
+}
+
+$fileList
+10. С ограничением по количеству файлов
+powershell
+$fileList = [System.Collections.ArrayList]@()
+$maxFiles = 100
+$count = 0
+
+Get-ChildItem -Path "C:\Your\Folder" -File | ForEach-Object {
+    if ($count -lt $maxFiles) {
+        [void]$fileList.Add($_.Name)
+        $count++
+    }
+}
+
+Write-Host "Добавлено $count файлов из $((Get-ChildItem -Path "C:\Your\Folder" -File).Count)"
+$fileList
+11. Сохранение в файл
+powershell
+$fileList = [System.Collections.ArrayList]@()
+
+Get-ChildItem -Path "C:\Your\Folder" -File | ForEach-Object {
+    [void]$fileList.Add($_.Name)
+}
+
+# Сохраняем в файл
+$fileList | Out-File -FilePath "C:\file_list.txt"
+
+Write-Host "Список файлов сохранен в C:\file_list.txt"
+Пример вывода:
+text
+Count Capacity
+----- --------
+   25       32
+
+# Для просмотра содержимого:
+$fileList | Format-Table -AutoSize
+Преимущества использования ArrayList:
+
+Быстрее работает с большими количествами файлов
+
+Легко добавлять и удалять элементы
+
+Поддерживает все методы коллекций .NET
+
+Важно: Используйте [void] перед $fileList.Add() чтобы подавить вывод номера индекса при добавлении элементов.
