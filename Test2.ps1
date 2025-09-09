@@ -217,3 +217,265 @@ foreach ($row in $data.Tables[0].Rows) {
 
 # ‚ывод результатов
 $resultArray | ForEach-Object { Write-Output $_ }
+
+В PowerShell есть несколько способов получить названия файлов из папки в массив:
+
+1. Простой способ с Get-ChildItem
+powershell
+# Получить только имена файлов (без полного пути)
+$fileNames = Get-ChildItem -Path "C:\Your\Folder" -File | Select-Object -ExpandProperty Name
+
+# Вывести результат
+$fileNames
+2. Получить массив с полными путями
+powershell
+# Получить полные пути к файлам
+$filePaths = Get-ChildItem -Path "C:\Your\Folder" -File | Select-Object -ExpandProperty FullName
+
+$filePaths
+3. Только для определенного типа файлов
+powershell
+# Только txt файлы
+$txtFiles = Get-ChildItem -Path "C:\Your\Folder" -Filter "*.txt" | Select-Object -ExpandProperty Name
+
+# Только excel файлы
+$excelFiles = Get-ChildItem -Path "C:\Your\Folder" -Filter "*.xlsx" | Select-Object -ExpandProperty Name
+4. С использованием ForEach-Object
+powershell
+$fileNames = @()
+Get-ChildItem -Path "C:\Your\Folder" -File | ForEach-Object {
+    $fileNames += $_.Name
+}
+
+$fileNames
+5. Более эффективный способ с ArrayList
+powershell
+# Для больших папок лучше использовать ArrayList
+$fileList = [System.Collections.ArrayList]@()
+Get-ChildItem -Path "C:\Your\Folder" -File | ForEach-Object {
+    [void]$fileList.Add($_.Name)
+}
+
+# Конвертируем в обычный массив если нужно
+$fileNames = @($fileList)
+$fileNames
+6. С рекурсивным поиском (включая подпапки)
+powershell
+# Искать во всех подпапках
+$allFiles = Get-ChildItem -Path "C:\Your\Folder" -File -Recurse | Select-Object -ExpandProperty Name
+
+$allFiles
+7. С фильтрацией по атрибутам
+powershell
+# Только скрытые файлы
+$hiddenFiles = Get-ChildItem -Path "C:\Your\Folder" -File -Hidden | Select-Object -ExpandProperty Name
+
+# Только системные файлы
+$systemFiles = Get-ChildItem -Path "C:\Your\Folder" -File -System | Select-Object -ExpandProperty Name
+8. С сортировкой
+powershell
+# Отсортировать по имени
+$sortedFiles = Get-ChildItem -Path "C:\Your\Folder" -File | 
+               Sort-Object Name | 
+               Select-Object -ExpandProperty Name
+
+# Отсортировать по дате изменения (сначала новые)
+$newestFiles = Get-ChildItem -Path "C:\Your\Folder" -File | 
+               Sort-Object LastWriteTime -Descending | 
+               Select-Object -ExpandProperty Name
+9. Компактная запись
+powershell
+# Самый короткий вариант
+$files = (Get-ChildItem -Path "C:\Your\Folder" -File).Name
+$files
+10. Полный пример с обработкой ошибок
+powershell
+try {
+    $folderPath = "C:\Your\Folder"
+    
+    # Проверяем существование папки
+    if (Test-Path $folderPath -PathType Container) {
+        $fileNames = Get-ChildItem -Path $folderPath -File -ErrorAction Stop | 
+                    Select-Object -ExpandProperty Name
+        
+        Write-Host "Найдено файлов: $($fileNames.Count)"
+        $fileNames
+    }
+    else {
+        Write-Warning "Папка $folderPath не существует!"
+    }
+}
+catch {
+    Write-Error "Ошибка при получении списка файлов: $($_.Exception.Message)"
+}
+11. Сохранение в файл
+powershell
+# Получить имена файлов и сохранить в текстовый файл
+$fileNames = Get-ChildItem -Path "C:\Your\Folder" -File | Select-Object -ExpandProperty Name
+$fileNames | Out-File -FilePath "C:\file_list.txt"
+
+# Или одной строкой
+(Get-ChildItem -Path "C:\Your\Folder" -File).Name | Out-File "C:\file_list.txt"
+Пример вывода:
+text
+file1.txt
+document.docx
+image.jpg
+script.ps1
+data.xlsx
+Совет: Для работы с большими папками используйте вариант с ArrayList (пункт 5), так как он более эффективен по памяти.
+
+Сравнить два массива System.Collections.ArrayList и вывести отличия
+В PowerShell есть несколько способов сравнить два ArrayList и найти отличия. Вот основные методы:
+
+1. Использование Compare-Object (самый простой способ)
+powershell
+# Создаем два ArrayList для примера
+$list1 = [System.Collections.ArrayList]@('file1.txt', 'file2.txt', 'file3.txt', 'file5.txt')
+$list2 = [System.Collections.ArrayList]@('file2.txt', 'file3.txt', 'file4.txt', 'file6.txt')
+
+# Сравниваем и находим отличия
+$differences = Compare-Object -ReferenceObject $list1 -DifferenceObject $list2
+
+# Выводим результат
+$differences
+2. Более детализированное сравнение
+powershell
+$comparison = Compare-Object -ReferenceObject $list1 -DifferenceObject $list2
+
+Write-Host "=== РАЗЛИЧИЯ МЕЖДУ МАССИВАМИ ===" -ForegroundColor Yellow
+
+foreach ($item in $comparison) {
+    if ($item.SideIndicator -eq '=>') {
+        Write-Host "Только во втором массиве: $($item.InputObject)" -ForegroundColor Green
+    }
+    elseif ($item.SideIndicator -eq '<=') {
+        Write-Host "Только в первом массиве: $($item.InputObject)" -ForegroundColor Red
+    }
+}
+3. Разделение на отдельные массивы различий
+powershell
+$comparison = Compare-Object -ReferenceObject $list1 -DifferenceObject $list2
+
+# Элементы только в первом массиве
+$onlyInFirst = $comparison | Where-Object { $_.SideIndicator -eq '<=' } | Select-Object -ExpandProperty InputObject
+
+# Элементы только во втором массиве
+$onlyInSecond = $comparison | Where-Object { $_.SideIndicator -eq '=>' } | Select-Object -ExpandProperty InputObject
+
+# Общие элементы
+$commonItems = $list1 | Where-Object { $list2 -contains $_ }
+
+Write-Host "Только в первом массиве: $($onlyInFirst -join ', ')" -ForegroundColor Red
+Write-Host "Только во втором массиве: $($onlyInSecond -join ', ')" -ForegroundColor Green
+Write-Host "Общие элементы: $($commonItems -join ', ')" -ForegroundColor Blue
+4. С использованием методов .NET
+powershell
+# Элементы только в первом массиве
+$onlyInFirst = $list1 | Where-Object { $list2 -notcontains $_ }
+
+# Элементы только во втором массиве
+$onlyInSecond = $list2 | Where-Object { $list1 -notcontains $_ }
+
+# Общие элементы
+$commonItems = $list1 | Where-Object { $list2 -contains $_ }
+
+Write-Host "=== РЕЗУЛЬТАТЫ СРАВНЕНИЯ ===" -ForegroundColor Yellow
+Write-Host "Только в list1 ($($onlyInFirst.Count)): " -NoNewline -ForegroundColor Red
+Write-Host ($onlyInFirst -join ', ')
+Write-Host "Только в list2 ($($onlyInSecond.Count)): " -NoNewline -ForegroundColor Green
+Write-Host ($onlyInSecond -join ', ')
+Write-Host "Общие элементы ($($commonItems.Count)): " -NoNewline -ForegroundColor Blue
+Write-Host ($commonItems -join ', ')
+5. Функция для удобного сравнения
+powershell
+function Compare-ArrayLists {
+    param(
+        [System.Collections.ArrayList]$FirstList,
+        [System.Collections.ArrayList]$SecondList,
+        [string]$FirstName = "Первый массив",
+        [string]$SecondName = "Второй массив"
+    )
+    
+    $comparison = Compare-Object -ReferenceObject $FirstList -DifferenceObject $SecondList
+    
+    $onlyInFirst = $comparison | Where-Object { $_.SideIndicator -eq '<=' } | Select-Object -ExpandProperty InputObject
+    $onlyInSecond = $comparison | Where-Object { $_.SideIndicator -eq '=>' } | Select-Object -ExpandProperty InputObject
+    $commonItems = $FirstList | Where-Object { $SecondList -contains $_ }
+    
+    Write-Host "`n=== СРАВНЕНИЕ: $FirstName vs $SecondName ===" -ForegroundColor Yellow
+    Write-Host "Элементов в $FirstName`: $($FirstList.Count)" -ForegroundColor Gray
+    Write-Host "Элементов в $SecondName`: $($SecondList.Count)" -ForegroundColor Gray
+    Write-Host "Общих элементов: $($commonItems.Count)" -ForegroundColor Blue
+    Write-Host "Уникальных в $FirstName`: $($onlyInFirst.Count)" -ForegroundColor Red
+    Write-Host "Уникальных в $SecondName`: $($onlyInSecond.Count)" -ForegroundColor Green
+    
+    if ($onlyInFirst) {
+        Write-Host "`nТолько в $FirstName`: " -ForegroundColor Red -NoNewline
+        Write-Host ($onlyInFirst -join ', ')
+    }
+    
+    if ($onlyInSecond) {
+        Write-Host "Только в $SecondName`: " -ForegroundColor Green -NoNewline
+        Write-Host ($onlyInSecond -join ', ')
+    }
+    
+    return @{
+        OnlyInFirst = $onlyInFirst
+        OnlyInSecond = $onlyInSecond
+        Common = $commonItems
+    }
+}
+
+# Использование функции
+$result = Compare-ArrayLists -FirstList $list1 -SecondList $list2 -FirstName "Исходные файлы" -SecondName "Новые файлы"
+6. Сравнение без учета регистра
+powershell
+# Если нужно сравнение без учета регистра
+$caseInsensitiveCompare = Compare-Object -ReferenceObject $list1 -DifferenceObject $list2 -CaseSensitive:$false
+$caseInsensitiveCompare
+7. Синхронное сравнение с индексами
+powershell
+# Для сравнения по позициям (если порядок важен)
+for ($i = 0; $i -lt [Math]::Max($list1.Count, $list2.Count); $i++) {
+    $item1 = if ($i -lt $list1.Count) { $list1[$i] } else { "НЕТ ЭЛЕМЕНТА" }
+    $item2 = if ($i -lt $list2.Count) { $list2[$i] } else { "НЕТ ЭЛЕМЕНТА" }
+    
+    if ($item1 -ne $item2) {
+        Write-Host "Различие в позиции $i : $item1 != $item2" -ForegroundColor Yellow
+    }
+}
+8. Экспорт результатов в файл
+powershell
+$comparison = Compare-Object -ReferenceObject $list1 -DifferenceObject $list2
+
+$report = @"
+=== ОТЧЕТ О СРАВНЕНИИ МАССИВОВ ===
+Дата сравнения: $(Get-Date)
+Размер первого массива: $($list1.Count)
+Размер второго массива: $($list2.Count)
+
+Элементы только в первом массиве:
+$($comparison | Where-Object { $_.SideIndicator -eq '<=' } | ForEach-Object { "  - $($_.InputObject)" } | Out-String)
+
+Элементы только во втором массиве:
+$($comparison | Where-Object { $_.SideIndicator -eq '=>' } | ForEach-Object { "  - $($_.InputObject)" } | Out-String)
+"@
+
+$report | Out-File -FilePath "comparison_report.txt"
+Write-Host "Отчет сохранен в comparison_report.txt"
+Пример вывода:
+text
+InputObject SideIndicator
+----------- -------------
+file1.txt   <=
+file5.txt   <=
+file4.txt   =>
+file6.txt   =>
+Рекомендации:
+
+Используйте Compare-Object для большинства случаев - это самый надежный метод
+
+Для больших массивов метод с -notcontains может быть медленнее
+
+Функция Compare-ArrayLists предоставляет наиболее читаемый результат
