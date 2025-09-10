@@ -1580,3 +1580,201 @@ if (Test-Path $versionListPath) {
 
 # 5. Обновляем VersionList.txt
 Update-VersionListFile -CurrentFileList $currentFiles -BackupOriginal
+
+
+-------------
+-------------
+-------------
+1. Исправленная строка с фильтрацией .txt файлов
+powershell
+# Оригинальная строка (заменяем эту):
+# $versionListFiles = [System.Collections.ArrayList]@($versionListContent | Where-Object { $_ -and $_.Trim() -ne '' })
+
+# Исправленная строка:
+$versionListFiles = [System.Collections.ArrayList]@(
+    $versionListContent | 
+    Where-Object { $_ -and $_.Trim() -ne '' } |
+    ForEach-Object {
+        if ($_ -match '^(.*?\.txt)') {
+            $matches[1]  # Берем только часть до .txt (включая .txt)
+        }
+    } |
+    Where-Object { $_ }  # Убираем пустые значения
+)
+2. Полный исправленный код функции
+powershell
+function Update-VersionListFile {
+    param(
+        [System.Collections.ArrayList]$CurrentFileList,
+        [string]$VersionListPath = "VersionList.txt",
+        [switch]$BackupOriginal,
+        [switch]$WhatIf
+    )
+    
+    Write-Host "=== ОБНОВЛЕНИЕ ФАЙЛА VersionList.txt ===" -ForegroundColor Yellow
+    
+    # Проверяем существование файла VersionList.txt
+    if (-not (Test-Path $VersionListPath -PathType Leaf)) {
+        Write-Host "Файл $VersionListPath не найден. Создаем новый..." -ForegroundColor Yellow
+        
+        # Фильтруем только .txt файлы для нового файла
+        $txtFilesOnly = $CurrentFileList | Where-Object { $_ -like '*.txt' }
+        $txtFilesOnly | Out-File -FilePath $VersionListPath -Encoding UTF8
+        
+        Write-Host "Создан новый файл $VersionListPath с $($txtFilesOnly.Count) .txt файлами" -ForegroundColor Green
+        return
+    }
+    
+    # Читаем текущий список из файла
+    $versionListContent = Get-Content $VersionListPath -Encoding UTF8 -ErrorAction Stop
+    
+    # ИЗМЕНЕННАЯ СТРОКА - берем только названия до .txt
+    $versionListFiles = [System.Collections.ArrayList]@(
+        $versionListContent | 
+        Where-Object { $_ -and $_.Trim() -ne '' } |
+        ForEach-Object {
+            if ($_ -match '^(.*?\.txt)') {
+                $matches[1]  # Берем только часть до .txt (включая .txt)
+            }
+        } |
+        Where-Object { $_ }  # Убираем пустые значения
+    )
+    
+    Write-Host "Файлов в VersionList.txt: $($versionListFiles.Count)" -ForegroundColor Cyan
+    Write-Host "Текущих файлов в папке: $($CurrentFileList.Count)" -ForegroundColor Cyan
+    
+    # Сравниваем массивы
+    $comparison = Compare-Object -ReferenceObject $versionListFiles -DifferenceObject $CurrentFileList
+    
+    $filesToAdd = $comparison | Where-Object { $_.SideIndicator -eq '=>' } | Select-Object -ExpandProperty InputObject
+    $filesToRemove = $comparison | Where-Object { $_.SideIndicator -eq '<=' } | Select-Object -ExpandProperty InputObject
+    
+    if ($filesToAdd.Count -eq 0 -and $filesToRemove.Count -eq 0) {
+        Write-Host "Файл VersionList.txt актуален. Изменений не требуется." -ForegroundColor Green
+        return
+    }
+    
+    # Показываем изменения
+    if ($filesToAdd.Count -gt 0) {
+        Write-Host "`nБудут добавлены файлы ($($filesToAdd.Count)):" -ForegroundColor Green
+        $filesToAdd | ForEach-Object { Write-Host "  + $_" -ForegroundColor Green }
+    }
+    
+    if ($filesToRemove.Count -gt 0) {
+        Write-Host "`nБудут удалены файлы ($($filesToRemove.Count)):" -ForegroundColor Red
+        $filesToRemove | ForEach-Object { Write-Host "  - $_" -ForegroundColor Red }
+    }
+    
+    # Запрос подтверждения
+    if (-not $WhatIf) {
+        Write-Host "`n" -NoNewline
+        $confirm = Read-Host "Обновить файл VersionList.txt? (y/N)"
+        
+        if ($confirm -ne 'y' -and $confirm -ne 'Y') {
+            Write-Host "Обновление отменено." -ForegroundColor Yellow
+            return
+        }
+    }
+    
+    # Создаем backup если нужно
+    if ($BackupOriginal -and -not $WhatIf) {
+        $backupPath = "VersionList_backup_$(Get-Date -Format 'yyyyMMdd_HHmmss').txt"
+        Copy-Item -Path $VersionListPath -Destination $backupPath -Force
+        Write-Host "Создан backup: $backupPath" -ForegroundColor Gray
+    }
+    
+    if ($WhatIf) {
+        Write-Host "`n[WHATIF] Файл VersionList.txt будет обновлен:" -ForegroundColor Magenta
+        Write-Host "Добавлено: $($filesToAdd.Count) файлов" -ForegroundColor Green
+        Write-Host "Удалено: $($filesToRemove.Count) файлов" -ForegroundColor Red
+        return
+    }
+    
+    # Обновляем файл (только .txt файлы)
+    try {
+        $txtFilesOnly = $CurrentFileList | Where-Object { $_ -like '*.txt' }
+        $txtFilesOnly | Sort-Object | Out-File -FilePath $VersionListPath -Encoding UTF8 -Force
+        
+        Write-Host "`nФайл VersionList.txt успешно обновлен!" -ForegroundColor Green
+        Write-Host "Добавлено файлов: $($filesToAdd.Count)" -ForegroundColor Green
+        Write-Host "Удалено файлов: $($filesToRemove.Count)" -ForegroundColor Red
+        Write-Host "Итого в файле: $($txtFilesOnly.Count) .txt файлов" -ForegroundColor Cyan
+        
+    }
+    catch {
+        Write-Host "Ошибка при обновлении файла: $($_.Exception.Message)" -ForegroundColor Red
+    }
+}
+3. Альтернативные варианты фильтрации
+Вариант A: Только точное совпадение .txt
+powershell
+$versionListFiles = [System.Collections.ArrayList]@(
+    $versionListContent | 
+    Where-Object { $_ -and $_.Trim() -ne '' } |
+    Where-Object { $_ -like '*.txt' }  # Только строки, заканчивающиеся на .txt
+)
+Вариант B: Берем первую часть до .txt (если есть другие символы)
+powershell
+$versionListFiles = [System.Collections.ArrayList]@(
+    $versionListContent | 
+    Where-Object { $_ -and $_.Trim() -ne '' } |
+    ForEach-Object {
+        if ($_ -match '^([^\.]+\.txt)') {
+            $matches[1]  # Берем только имя_файла.txt
+        }
+    } |
+    Where-Object { $_ }
+)
+Вариант C: Разделение по точке и взятие первой части
+powershell
+$versionListFiles = [System.Collections.ArrayList]@(
+    $versionListContent | 
+    Where-Object { $_ -and $_.Trim() -ne '' } |
+    ForEach-Object {
+        $parts = $_ -split '\.'
+        if ($parts -contains 'txt') {
+            $index = [array]::IndexOf($parts, 'txt')
+            if ($index -gt 0) {
+                $parts[0..($index)] -join '.'  # Возвращаем часть до .txt включая
+            }
+        }
+    } |
+    Where-Object { $_ }
+)
+4. Пример использования
+powershell
+# Пример содержимого VersionList.txt:
+# file1.txt
+# file2.txt backup
+# file3.txt.old
+# readme.md
+# data.json
+
+# После обработки в массив попадут только:
+# file1.txt
+# file2.txt (часть до " backup" отбрасывается)
+# file3.txt (часть до ".old" отбрасывается)
+
+$versionListContent = @"
+file1.txt
+file2.txt backup
+file3.txt.old
+readme.md
+data.json
+script.ps1
+"@ -split "`n"
+
+# Применяем фильтр
+$versionListFiles = [System.Collections.ArrayList]@(
+    $versionListContent | 
+    Where-Object { $_ -and $_.Trim() -ne '' } |
+    ForEach-Object {
+        if ($_ -match '^(.*?\.txt)') {
+            $matches[1]  # Берем только часть до .txt (включая .txt)
+        }
+    } |
+    Where-Object { $_ }
+)
+
+Write-Host "Отфильтрованные файлы:"
+$versionListFiles | ForEach-Object { Write-Host "  - $_" }
