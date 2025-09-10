@@ -674,3 +674,306 @@ $fileList | Format-Table -AutoSize
 ѕоддерживает все методы коллекций .NET
 
 ¬ажно: »спользуйте [void] перед $fileList.Add() чтобы подавить вывод номера индекса при добавлении элементов.
+
+Вот пример скрипта для удаления файлов с подтверждением:
+
+1. Полный скрипт с подтверждением
+powershell
+# Создаем массив с файлами для удаления
+$filesToDelete = [System.Collections.ArrayList]@(
+    "C:\temp\file1.txt",
+    "C:\temp\old_file.log",
+    "C:\temp\backup.bak",
+    "C:\temp\temp_data.tmp"
+)
+
+function Remove-FilesWithConfirmation {
+    param(
+        [System.Collections.ArrayList]$FileList
+    )
+    
+    Write-Host "=== СКРИПТ УДАЛЕНИЯ ФАЙЛОВ ===" -ForegroundColor Yellow
+    Write-Host "Найдено файлов для удаления: $($FileList.Count)" -ForegroundColor Cyan
+    
+    # Показываем список файлов
+    Write-Host "`nСписок файлов для удаления:" -ForegroundColor Green
+    for ($i = 0; $i -lt $FileList.Count; $i++) {
+        Write-Host "$($i+1). $($FileList[$i])" -ForegroundColor Gray
+    }
+    
+    # Запрос подтверждения
+    Write-Host "`n" -NoNewline
+    $confirmation = Read-Host "Вы уверены, что хотите удалить эти файлы? (y/N)"
+    
+    if ($confirmation -ne 'y' -and $confirmation -ne 'Y' -and $confirmation -ne 'д' -and $confirmation -ne 'Д') {
+        Write-Host "Удаление отменено." -ForegroundColor Red
+        return
+    }
+    
+    # Подтверждение для каждого файла
+    $confirmEach = Read-Host "Подтверждать удаление каждого файла отдельно? (y/N)"
+    $confirmIndividual = ($confirmEach -eq 'y' -or $confirmEach -eq 'Y' -or $confirmEach -eq 'д' -or $confirmEach -eq 'Д')
+    
+    $deletedCount = 0
+    $failedCount = 0
+    $skippedCount = 0
+    
+    # Удаляем файлы
+    foreach ($filePath in $FileList) {
+        if (-not (Test-Path $filePath -PathType Leaf)) {
+            Write-Host "Файл не найден: $filePath" -ForegroundColor Yellow
+            $skippedCount++
+            continue
+        }
+        
+        $fileInfo = Get-Item $filePath
+        $fileSize = "{0:N2} MB" -f ($fileInfo.Length / 1MB)
+        
+        if ($confirmIndividual) {
+            Write-Host "`nФайл: $($fileInfo.Name)" -ForegroundColor Cyan
+            Write-Host "Размер: $fileSize" -ForegroundColor Gray
+            Write-Host "Путь: $filePath" -ForegroundColor Gray
+            
+            $confirmFile = Read-Host "Удалить этот файл? (y/N)"
+            if ($confirmFile -ne 'y' -and $confirmFile -ne 'Y' -and $confirmFile -ne 'д' -and $confirmFile -ne 'Д') {
+                Write-Host "Пропускаем файл: $filePath" -ForegroundColor Yellow
+                $skippedCount++
+                continue
+            }
+        }
+        
+        try {
+            Remove-Item -Path $filePath -Force -ErrorAction Stop
+            Write-Host "УДАЛЕНО: $filePath" -ForegroundColor Green
+            $deletedCount++
+        }
+        catch {
+            Write-Host "ОШИБКА при удалении $filePath : $($_.Exception.Message)" -ForegroundColor Red
+            $failedCount++
+        }
+    }
+    
+    # Вывод результатов
+    Write-Host "`n=== РЕЗУЛЬТАТЫ УДАЛЕНИЯ ===" -ForegroundColor Yellow
+    Write-Host "Успешно удалено: $deletedCount" -ForegroundColor Green
+    Write-Host "Не удалось удалить: $failedCount" -ForegroundColor Red
+    Write-Host "Пропущено: $skippedCount" -ForegroundColor Yellow
+    Write-Host "Всего обработано: $($FileList.Count)" -ForegroundColor Cyan
+}
+
+# Запускаем функцию удаления
+Remove-FilesWithConfirmation -FileList $filesToDelete
+2. Упрощенная версия
+powershell
+# Массив файлов для удаления
+$filesToDelete = [System.Collections.ArrayList]@(
+    "C:\temp\file1.txt",
+    "C:\temp\file2.log",
+    "C:\temp\file3.tmp"
+)
+
+Write-Host "Следующие файлы будут удалены:" -ForegroundColor Red
+$filesToDelete | ForEach-Object { Write-Host "  - $_" -ForegroundColor Yellow }
+
+$confirm = Read-Host "`nПродолжить удаление? (y/N)"
+
+if ($confirm -eq 'y' -or $confirm -eq 'Y') {
+    $successCount = 0
+    $errorCount = 0
+    
+    foreach ($file in $filesToDelete) {
+        if (Test-Path $file) {
+            try {
+                Remove-Item $file -Force -ErrorAction Stop
+                Write-Host "Удален: $file" -ForegroundColor Green
+                $successCount++
+            }
+            catch {
+                Write-Host "Ошибка: $file - $($_.Exception.Message)" -ForegroundColor Red
+                $errorCount++
+            }
+        }
+        else {
+            Write-Host "Файл не найден: $file" -ForegroundColor Yellow
+            $errorCount++
+        }
+    }
+    
+    Write-Host "`nУдалено: $successCount, Ошибок: $errorCount" -ForegroundColor Cyan
+}
+else {
+    Write-Host "Удаление отменено." -ForegroundColor Green
+}
+3. Версия с логированием
+powershell
+$filesToDelete = [System.Collections.ArrayList]@(
+    "C:\temp\file1.txt",
+    "C:\temp\file2.log"
+)
+
+$logFile = "C:\temp\deletion_log_$(Get-Date -Format 'yyyyMMdd_HHmmss').txt"
+
+function Write-Log {
+    param($Message, $Color = "White")
+    Write-Host $Message -ForegroundColor $Color
+    Add-Content -Path $logFile -Value "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - $Message"
+}
+
+Write-Log "=== НАЧАЛО ПРОЦЕДУРЫ УДАЛЕНИЯ ===" "Yellow"
+
+# Показываем файлы
+Write-Log "Файлы для удаления:" "Cyan"
+$filesToDelete | ForEach-Object { Write-Log "  - $_" "Gray" }
+
+# Подтверждение
+$confirm = Read-Host "`nПодтвердите удаление (y/N)"
+
+if ($confirm -ne 'y' -and $confirm -ne 'Y') {
+    Write-Log "Удаление отменено пользователем." "Green"
+    exit
+}
+
+# Процесс удаления
+foreach ($file in $filesToDelete) {
+    if (Test-Path $file -PathType Leaf) {
+        try {
+            $fileInfo = Get-Item $file
+            $size = "{0:N2} MB" -f ($fileInfo.Length / 1MB)
+            
+            Remove-Item $file -Force -ErrorAction Stop
+            Write-Log "УСПЕХ: $file ($size)" "Green"
+        }
+        catch {
+            Write-Log "ОШИБКА: $file - $($_.Exception.Message)" "Red"
+        }
+    }
+    else {
+        Write-Log "НЕ НАЙДЕН: $file" "Yellow"
+    }
+}
+
+Write-Log "=== ПРОЦЕДУРА УДАЛЕНИЯ ЗАВЕРШЕНА ===" "Yellow"
+Write-Log "Лог сохранен в: $logFile" "Cyan"
+4. Функция для многократного использования
+powershell
+function Invoke-SafeFileDeletion {
+    param(
+        [System.Collections.ArrayList]$FilePaths,
+        [switch]$ConfirmEachFile,
+        [string]$LogPath = ""
+    )
+    
+    # Создаем лог файл если указан
+    if ($LogPath) {
+        $logStream = [System.IO.StreamWriter]::new($LogPath, $true)
+        $logStream.WriteLine("$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - Начало удаления файлов")
+    }
+    
+    try {
+        Write-Host "Найдено файлов: $($FilePaths.Count)" -ForegroundColor Cyan
+        
+        # Общее подтверждение
+        Write-Host "`nФайлы для удаления:" -ForegroundColor Yellow
+        $FilePaths | ForEach-Object { Write-Host "  - $_" -ForegroundColor Gray }
+        
+        $confirm = Read-Host "`nПродолжить удаление? (y/N)"
+        if ($confirm -ne 'y' -and $confirm -ne 'Y') {
+            Write-Host "Отменено." -ForegroundColor Green
+            if ($LogPath) { $logStream.WriteLine("Отменено пользователем") }
+            return
+        }
+        
+        $results = @{
+            Deleted = 0
+            Failed = 0
+            Skipped = 0
+        }
+        
+        # Удаление файлов
+        foreach ($file in $FilePaths) {
+            if (-not (Test-Path $file -PathType Leaf)) {
+                $msg = "Файл не найден: $file"
+                Write-Host $msg -ForegroundColor Yellow
+                if ($LogPath) { $logStream.WriteLine($msg) }
+                $results.Skipped++
+                continue
+            }
+            
+            if ($ConfirmEachFile) {
+                $fileConfirm = Read-Host "Удалить файл '$file'? (y/N)"
+                if ($fileConfirm -ne 'y' -and $fileConfirm -ne 'Y') {
+                    $msg = "Пропущен: $file"
+                    Write-Host $msg -ForegroundColor Yellow
+                    if ($LogPath) { $logStream.WriteLine($msg) }
+                    $results.Skipped++
+                    continue
+                }
+            }
+            
+            try {
+                Remove-Item $file -Force -ErrorAction Stop
+                $msg = "Удален: $file"
+                Write-Host $msg -ForegroundColor Green
+                if ($LogPath) { $logStream.WriteLine($msg) }
+                $results.Deleted++
+            }
+            catch {
+                $msg = "Ошибка: $file - $($_.Exception.Message)"
+                Write-Host $msg -ForegroundColor Red
+                if ($LogPath) { $logStream.WriteLine($msg) }
+                $results.Failed++
+            }
+        }
+        
+        # Итоги
+        $summary = "Итог: Удалено $($results.Deleted), Ошибок $($results.Failed), Пропущено $($results.Skipped)"
+        Write-Host "`n$summary" -ForegroundColor Cyan
+        if ($LogPath) { $logStream.WriteLine($summary) }
+        
+    }
+    finally {
+        if ($LogPath) {
+            $logStream.WriteLine("$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - Завершение")
+            $logStream.Close()
+            Write-Host "Лог сохранен: $LogPath" -ForegroundColor Gray
+        }
+    }
+}
+
+# Использование функции
+$files = [System.Collections.ArrayList]@("C:\temp\test1.txt", "C:\temp\test2.txt")
+Invoke-SafeFileDeletion -FilePaths $files -ConfirmEachFile -LogPath "C:\temp\deletion_log.txt"
+5. Пример с реальными файлами из папки
+powershell
+# Получаем файлы из папки для удаления
+$folderPath = "C:\temp\old_files"
+$filesToDelete = [System.Collections.ArrayList]@()
+
+if (Test-Path $folderPath) {
+    Get-ChildItem $folderPath -File | ForEach-Object {
+        [void]$filesToDelete.Add($_.FullName)
+    }
+}
+
+if ($filesToDelete.Count -gt 0) {
+    Write-Host "Найдено файлов в $folderPath : $($filesToDelete.Count)" -ForegroundColor Cyan
+    
+    $confirm = Read-Host "Удалить все эти файлы? (y/N)"
+    if ($confirm -eq 'y' -or $confirm -eq 'Y') {
+        foreach ($file in $filesToDelete) {
+            try {
+                Remove-Item $file -Force
+                Write-Host "Удален: $(Split-Path $file -Leaf)" -ForegroundColor Green
+            }
+            catch {
+                Write-Host "Ошибка при удалении $file" -ForegroundColor Red
+            }
+        }
+    }
+    else {
+        Write-Host "Удаление отменено" -ForegroundColor Yellow
+    }
+}
+else {
+    Write-Host "Файлы для удаления не найдены" -ForegroundColor Yellow
+}
