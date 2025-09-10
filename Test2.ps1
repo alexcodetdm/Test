@@ -1257,3 +1257,326 @@ if ($filesToDelete.Count -gt 0) {
 else {
     Write-Host "Ќет лишних файлов дл€ удалени€." -ForegroundColor Green
 }
+-----------------------------------------------------------------------
+
+------------------------------------------------------------------------
+1. Функция для сравнения и обновления VersionList.txt
+powershell
+function Update-VersionListFile {
+    param(
+        [System.Collections.ArrayList]$CurrentFileList,
+        [string]$VersionListPath = "VersionList.txt",
+        [switch]$BackupOriginal,
+        [switch]$WhatIf
+    )
+    
+    Write-Host "=== ОБНОВЛЕНИЕ ФАЙЛА VersionList.txt ===" -ForegroundColor Yellow
+    
+    # Проверяем существование файла VersionList.txt
+    if (-not (Test-Path $VersionListPath -PathType Leaf)) {
+        Write-Host "Файл $VersionListPath не найден. Создаем новый..." -ForegroundColor Yellow
+        $CurrentFileList | Out-File -FilePath $VersionListPath -Encoding UTF8
+        Write-Host "Создан новый файл $VersionListPath с $($CurrentFileList.Count) файлами" -ForegroundColor Green
+        return
+    }
+    
+    # Читаем текущий список из файла
+    $versionListContent = Get-Content $VersionListPath -Encoding UTF8 -ErrorAction Stop
+    $versionListFiles = [System.Collections.ArrayList]@($versionListContent | Where-Object { $_ -and $_.Trim() -ne '' })
+    
+    Write-Host "Файлов в VersionList.txt: $($versionListFiles.Count)" -ForegroundColor Cyan
+    Write-Host "Текущих файлов в папке: $($CurrentFileList.Count)" -ForegroundColor Cyan
+    
+    # Сравниваем массивы
+    $comparison = Compare-Object -ReferenceObject $versionListFiles -DifferenceObject $CurrentFileList
+    
+    $filesToAdd = $comparison | Where-Object { $_.SideIndicator -eq '=>' } | Select-Object -ExpandProperty InputObject
+    $filesToRemove = $comparison | Where-Object { $_.SideIndicator -eq '<=' } | Select-Object -ExpandProperty InputObject
+    
+    if ($filesToAdd.Count -eq 0 -and $filesToRemove.Count -eq 0) {
+        Write-Host "Файл VersionList.txt актуален. Изменений не требуется." -ForegroundColor Green
+        return
+    }
+    
+    # Показываем изменения
+    if ($filesToAdd.Count -gt 0) {
+        Write-Host "`nБудут добавлены файлы ($($filesToAdd.Count)):" -ForegroundColor Green
+        $filesToAdd | ForEach-Object { Write-Host "  + $_" -ForegroundColor Green }
+    }
+    
+    if ($filesToRemove.Count -gt 0) {
+        Write-Host "`nБудут удалены файлы ($($filesToRemove.Count)):" -ForegroundColor Red
+        $filesToRemove | ForEach-Object { Write-Host "  - $_" -ForegroundColor Red }
+    }
+    
+    # Запрос подтверждения
+    if (-not $WhatIf) {
+        Write-Host "`n" -NoNewline
+        $confirm = Read-Host "Обновить файл VersionList.txt? (y/N)"
+        
+        if ($confirm -ne 'y' -and $confirm -ne 'Y') {
+            Write-Host "Обновление отменено." -ForegroundColor Yellow
+            return
+        }
+    }
+    
+    # Создаем backup если нужно
+    if ($BackupOriginal -and -not $WhatIf) {
+        $backupPath = "VersionList_backup_$(Get-Date -Format 'yyyyMMdd_HHmmss').txt"
+        Copy-Item -Path $VersionListPath -Destination $backupPath -Force
+        Write-Host "Создан backup: $backupPath" -ForegroundColor Gray
+    }
+    
+    if ($WhatIf) {
+        Write-Host "`n[WHATIF] Файл VersionList.txt будет обновлен:" -ForegroundColor Magenta
+        Write-Host "Добавлено: $($filesToAdd.Count) файлов" -ForegroundColor Green
+        Write-Host "Удалено: $($filesToRemove.Count) файлов" -ForegroundColor Red
+        return
+    }
+    
+    # Обновляем файл
+    try {
+        $CurrentFileList | Sort-Object | Out-File -FilePath $VersionListPath -Encoding UTF8 -Force
+        Write-Host "`nФайл VersionList.txt успешно обновлен!" -ForegroundColor Green
+        Write-Host "Добавлено файлов: $($filesToAdd.Count)" -ForegroundColor Green
+        Write-Host "Удалено файлов: $($filesToRemove.Count)" -ForegroundColor Red
+        Write-Host "Итого в файле: $($CurrentFileList.Count) файлов" -ForegroundColor Cyan
+        
+    }
+    catch {
+        Write-Host "Ошибка при обновлении файла: $($_.Exception.Message)" -ForegroundColor Red
+    }
+}
+
+# Использование функции
+$currentFiles = [System.Collections.ArrayList]@((Get-ChildItem -Path "C:\Your\Folder" -File).Name)
+Update-VersionListFile -CurrentFileList $currentFiles -BackupOriginal
+2. Расширенная версия с дополнительными опциями
+powershell
+function Sync-VersionList {
+    param(
+        [string]$SourceFolder,
+        [string]$VersionListPath = "VersionList.txt",
+        [switch]$IncludeSubfolders,
+        [switch]$Force,
+        [switch]$DryRun,
+        [string[]]$ExcludeExtensions = @('.tmp', '.log', '.bak')
+    )
+    
+    Write-Host "=== СИНХРОНИЗАЦИЯ VersionList.txt ===" -ForegroundColor Yellow
+    
+    # Получаем текущие файлы
+    $getChildItemParams = @{
+        Path = $SourceFolder
+        File = $true
+    }
+    
+    if ($IncludeSubfolders) {
+        $getChildItemParams.Recurse = $true
+    }
+    
+    $allFiles = Get-ChildItem @getChildItemParams
+    $currentFiles = [System.Collections.ArrayList]@()
+    
+    foreach ($file in $allFiles) {
+        $relativePath = if ($IncludeSubfolders) {
+            $file.FullName.Substring($SourceFolder.Length).Trim('\')
+        } else {
+            $file.Name
+        }
+        
+        # Пропускаем исключенные расширения
+        if ($ExcludeExtensions -contains $file.Extension) {
+            continue
+        }
+        
+        [void]$currentFiles.Add($relativePath)
+    }
+    
+    # Сортируем для consistency
+    $currentFiles = [System.Collections.ArrayList]@($currentFiles | Sort-Object)
+    
+    # Проверяем/создаем VersionList.txt
+    if (-not (Test-Path $VersionListPath)) {
+        Write-Host "Файл $VersionListPath не найден. Создаем..." -ForegroundColor Yellow
+        $currentFiles | Out-File -FilePath $VersionListPath -Encoding UTF8
+        Write-Host "Создан новый файл с $($currentFiles.Count) файлами" -ForegroundColor Green
+        return @{ Status = "Created"; FileCount = $currentFiles.Count }
+    }
+    
+    # Читаем существующий список
+    $versionListContent = Get-Content $VersionListPath -Encoding UTF8
+    $versionListFiles = [System.Collections.ArrayList]@($versionListContent | Where-Object { $_ -and $_.Trim() -ne '' } | Sort-Object)
+    
+    # Сравниваем
+    $comparison = Compare-Object -ReferenceObject $versionListFiles -DifferenceObject $currentFiles
+    
+    $filesToAdd = $comparison | Where-Object { $_.SideIndicator -eq '=>' } | Select-Object -ExpandProperty InputObject
+    $filesToRemove = $comparison | Where-Object { $_.SideIndicator -eq '<=' } | Select-Object -ExpandProperty InputObject
+    
+    # Если нет изменений
+    if ($filesToAdd.Count -eq 0 -and $filesToRemove.Count -eq 0) {
+        Write-Host "VersionList.txt актуален. Изменений не требуется." -ForegroundColor Green
+        return @{ Status = "NoChanges"; FileCount = $currentFiles.Count }
+    }
+    
+    # Показываем изменения
+    Write-Host "`nОбнаружены изменения:" -ForegroundColor Cyan
+    Write-Host "Файлов в VersionList.txt: $($versionListFiles.Count)" -ForegroundColor Gray
+    Write-Host "Файлов в папке: $($currentFiles.Count)" -ForegroundColor Gray
+    
+    if ($filesToAdd.Count -gt 0) {
+        Write-Host "`nНовые файлы ($($filesToAdd.Count)):" -ForegroundColor Green
+        $filesToAdd | ForEach-Object { Write-Host "  + $_" -ForegroundColor Green }
+    }
+    
+    if ($filesToRemove.Count -gt 0) {
+        Write-Host "`nУдаленные файлы ($($filesToRemove.Count)):" -ForegroundColor Red
+        $filesToRemove | ForEach-Object { Write-Host "  - $_" -ForegroundColor Red }
+    }
+    
+    # Dry run mode
+    if ($DryRun) {
+        Write-Host "`n[DRY RUN] Режим предпросмотра. Файл не будет изменен." -ForegroundColor Magenta
+        return @{
+            Status = "DryRun"
+            FilesToAdd = $filesToAdd
+            FilesToRemove = $filesToRemove
+            CurrentCount = $currentFiles.Count
+        }
+    }
+    
+    # Запрос подтверждения (если не принудительный режим)
+    if (-not $Force) {
+        Write-Host "`n" -NoNewline
+        $confirm = Read-Host "Обновить VersionList.txt? (y/N)"
+        
+        if ($confirm -ne 'y' -and $confirm -ne 'Y') {
+            Write-Host "Синхронизация отменена." -ForegroundColor Yellow
+            return @{ Status = "Cancelled" }
+        }
+    }
+    
+    # Создаем backup
+    $backupPath = "VersionList_backup_$(Get-Date -Format 'yyyyMMdd_HHmmss').txt"
+    Copy-Item -Path $VersionListPath -Destination $backupPath -Force
+    Write-Host "Создан backup: $backupPath" -ForegroundColor Gray
+    
+    # Обновляем файл
+    try {
+        $currentFiles | Out-File -FilePath $VersionListPath -Encoding UTF8 -Force
+        Write-Host "`nVersionList.txt успешно обновлен!" -ForegroundColor Green
+        Write-Host "Добавлено: $($filesToAdd.Count) файлов" -ForegroundColor Green
+        Write-Host "Удалено: $($filesToRemove.Count) файлов" -ForegroundColor Red
+        Write-Host "Итого: $($currentFiles.Count) файлов" -ForegroundColor Cyan
+        
+        return @{
+            Status = "Updated"
+            Added = $filesToAdd.Count
+            Removed = $filesToRemove.Count
+            Total = $currentFiles.Count
+            Backup = $backupPath
+        }
+    }
+    catch {
+        Write-Host "Ошибка при обновлении: $($_.Exception.Message)" -ForegroundColor Red
+        return @{ Status = "Error"; Error = $_.Exception.Message }
+    }
+}
+
+# Использование
+$result = Sync-VersionList -SourceFolder "C:\Your\Folder" -VersionListPath "VersionList.txt" -Force
+3. Функция для проверки расхождений
+powershell
+function Test-VersionListConsistency {
+    param(
+        [string]$FolderPath,
+        [string]$VersionListPath = "VersionList.txt"
+    )
+    
+    if (-not (Test-Path $VersionListPath)) {
+        Write-Host "Файл VersionList.txt не найден!" -ForegroundColor Red
+        return $false
+    }
+    
+    # Получаем текущие файлы
+    $currentFiles = [System.Collections.ArrayList]@((Get-ChildItem -Path $FolderPath -File).Name)
+    $versionListFiles = [System.Collections.ArrayList]@((Get-Content $VersionListPath) | Where-Object { $_ -and $_.Trim() -ne '' })
+    
+    # Сравниваем
+    $comparison = Compare-Object -ReferenceObject $versionListFiles -DifferenceObject $currentFiles
+    
+    $missingInList = $comparison | Where-Object { $_.SideIndicator -eq '=>' } | Select-Object -ExpandProperty InputObject
+    $missingInFolder = $comparison | Where-Object { $_.SideIndicator -eq '<=' } | Select-Object -ExpandProperty InputObject
+    
+    $isConsistent = ($missingInList.Count -eq 0 -and $missingInFolder.Count -eq 0)
+    
+    if ($isConsistent) {
+        Write-Host "? VersionList.txt актуален" -ForegroundColor Green
+        return $true
+    }
+    else {
+        Write-Host "? Обнаружены расхождения:" -ForegroundColor Red
+        
+        if ($missingInList.Count -gt 0) {
+            Write-Host "Файлы в папке, но отсутствуют в VersionList.txt ($($missingInList.Count)):" -ForegroundColor Yellow
+            $missingInList | ForEach-Object { Write-Host "  - $_" -ForegroundColor Gray }
+        }
+        
+        if ($missingInFolder.Count -gt 0) {
+            Write-Host "Файлы в VersionList.txt, но отсутствуют в папке ($($missingInFolder.Count)):" -ForegroundColor Yellow
+            $missingInFolder | ForEach-Object { Write-Host "  - $_" -ForegroundColor Gray }
+        }
+        
+        return $false
+    }
+}
+
+# Проверка consistency
+$isConsistent = Test-VersionListConsistency -FolderPath "C:\Your\Folder"
+if (-not $isConsistent) {
+    $update = Read-Host "Хотите исправить расхождения? (y/N)"
+    if ($update -eq 'y' -or $update -eq 'Y') {
+        $currentFiles = [System.Collections.ArrayList]@((Get-ChildItem -Path "C:\Your\Folder" -File).Name)
+        Update-VersionListFile -CurrentFileList $currentFiles -BackupOriginal
+    }
+}
+4. Интеграция с предыдущим скриптом удаления
+powershell
+# Полный workflow: сравнение + удаление + обновление VersionList.txt
+$folderPath = "C:\Your\Folder"
+$versionListPath = "VersionList.txt"
+
+# 1. Получаем текущие файлы
+$currentFiles = [System.Collections.ArrayList]@((Get-ChildItem -Path $folderPath -File).Name)
+
+# 2. Читаем VersionList.txt (если существует)
+if (Test-Path $versionListPath) {
+    $versionListFiles = [System.Collections.ArrayList]@((Get-Content $versionListPath) | Where-Object { $_ -and $_.Trim() -ne '' })
+    
+    # 3. Сравниваем для удаления лишних файлов
+    $comparison = Compare-Object -ReferenceObject $versionListFiles -DifferenceObject $currentFiles
+    $filesToDelete = $comparison | Where-Object { $_.SideIndicator -eq '=>' } | Select-Object -ExpandProperty InputObject
+    
+    # 4. Удаляем лишние файлы
+    if ($filesToDelete.Count -gt 0) {
+        Write-Host "Найдено лишних файлов: $($filesToDelete.Count)" -ForegroundColor Red
+        $confirm = Read-Host "Удалить лишние файлы? (y/N)"
+        
+        if ($confirm -eq 'y' -or $confirm -eq 'Y') {
+            foreach ($file in $filesToDelete) {
+                $fullPath = Join-Path $folderPath $file
+                try {
+                    Remove-Item $fullPath -Force
+                    Write-Host "Удален: $file" -ForegroundColor Green
+                }
+                catch {
+                    Write-Host "Ошибка при удалении $file" -ForegroundColor Red
+                }
+            }
+        }
+    }
+}
+
+# 5. Обновляем VersionList.txt
+Update-VersionListFile -CurrentFileList $currentFiles -BackupOriginal
