@@ -977,3 +977,283 @@ if ($filesToDelete.Count -gt 0) {
 else {
     Write-Host "”айлы длЯ удалениЯ не найдены" -ForegroundColor Yellow
 }
+
+
+--------------------------------------------------------------------------
+Отлично! Вот пример скрипта, который удаляет файлы из массива $comparison где SideIndicator -eq '=>' с подтверждением:
+
+1. Основной скрипт удаления
+powershell
+# Предположим, что $comparison уже содержит результаты сравнения
+# $comparison = Compare-Object -ReferenceObject $list1 -DifferenceObject $list2
+
+function Remove-FilesFromComparison {
+    param(
+        $ComparisonResult,
+        [string]$BasePath = "",
+        [switch]$ConfirmEachFile
+    )
+    
+    # Фильтруем файлы для удаления (только те, что есть во втором массиве)
+    $filesToDelete = $ComparisonResult | 
+                    Where-Object { $_.SideIndicator -eq '=>' } | 
+                    Select-Object -ExpandProperty InputObject
+    
+    if ($filesToDelete.Count -eq 0) {
+        Write-Host "Нет файлов для удаления." -ForegroundColor Green
+        return
+    }
+    
+    Write-Host "=== ФАЙЛЫ ДЛЯ УДАЛЕНИЯ ===" -ForegroundColor Red
+    Write-Host "Найдено файлов для удаления: $($filesToDelete.Count)" -ForegroundColor Yellow
+    
+    # Показываем список файлов
+    $filesToDelete | ForEach-Object { 
+        $filePath = if ($BasePath) { Join-Path $BasePath $_ } else { $_ }
+        Write-Host "  - $filePath" -ForegroundColor Gray 
+    }
+    
+    # Запрос общего подтверждения
+    Write-Host "`n" -NoNewline
+    $confirm = Read-Host "Вы уверены, что хотите удалить эти файлы? (y/N)"
+    
+    if ($confirm -ne 'y' -and $confirm -ne 'Y') {
+        Write-Host "Удаление отменено." -ForegroundColor Green
+        return
+    }
+    
+    $results = @{
+        Deleted = 0
+        Failed = 0
+        Skipped = 0
+    }
+    
+    # Процесс удаления
+    foreach ($fileName in $filesToDelete) {
+        # Формируем полный путь к файлу
+        $filePath = if ($BasePath) { Join-Path $BasePath $fileName } else { $fileName }
+        
+        # Проверяем существование файла
+        if (-not (Test-Path $filePath -PathType Leaf)) {
+            Write-Host "ФАЙЛ НЕ НАЙДЕН: $filePath" -ForegroundColor Yellow
+            $results.Skipped++
+            continue
+        }
+        
+        # Подтверждение для каждого файла если включено
+        if ($ConfirmEachFile) {
+            $fileInfo = Get-Item $filePath
+            $fileSize = "{0:N2} MB" -f ($fileInfo.Length / 1MB)
+            
+            Write-Host "`nФайл: $fileName" -ForegroundColor Cyan
+            Write-Host "Размер: $fileSize" -ForegroundColor Gray
+            Write-Host "Путь: $filePath" -ForegroundColor Gray
+            
+            $fileConfirm = Read-Host "Удалить этот файл? (y/N)"
+            if ($fileConfirm -ne 'y' -and $fileConfirm -ne 'Y') {
+                Write-Host "ПРОПУЩЕНО: $filePath" -ForegroundColor Yellow
+                $results.Skipped++
+                continue
+            }
+        }
+        
+        # Удаляем файл
+        try {
+            Remove-Item -Path $filePath -Force -ErrorAction Stop
+            Write-Host "УДАЛЕНО: $filePath" -ForegroundColor Green
+            $results.Deleted++
+        }
+        catch {
+            Write-Host "ОШИБКА: $filePath - $($_.Exception.Message)" -ForegroundColor Red
+            $results.Failed++
+        }
+    }
+    
+    # Вывод результатов
+    Write-Host "`n=== РЕЗУЛЬТАТЫ УДАЛЕНИЯ ===" -ForegroundColor Yellow
+    Write-Host "Успешно удалено: $($results.Deleted)" -ForegroundColor Green
+    Write-Host "Не удалось удалить: $($results.Failed)" -ForegroundColor Red
+    Write-Host "Пропущено: $($results.Skipped)" -ForegroundColor Yellow
+    Write-Host "Всего обработано: $($filesToDelete.Count)" -ForegroundColor Cyan
+}
+
+# Использование функции
+Remove-FilesFromComparison -ComparisonResult $comparison -BasePath "C:\Your\Folder" -ConfirmEachFile
+2. Компактная версия
+powershell
+# Получаем файлы для удаления из сравнения
+$filesToDelete = $comparison | 
+                Where-Object { $_.SideIndicator -eq '=>' } | 
+                Select-Object -ExpandProperty InputObject
+
+if ($filesToDelete.Count -eq 0) {
+    Write-Host "Нет файлов для удаления." -ForegroundColor Green
+    exit
+}
+
+Write-Host "Будут удалены следующие файлы:" -ForegroundColor Red
+$filesToDelete | ForEach-Object { 
+    $fullPath = Join-Path "C:\Your\Folder" $_
+    Write-Host "  - $fullPath" -ForegroundColor Yellow 
+}
+
+$confirm = Read-Host "`nПодтвердите удаление (y/N)"
+
+if ($confirm -eq 'y' -or $confirm -eq 'Y') {
+    $success = 0
+    $errors = 0
+    
+    foreach ($file in $filesToDelete) {
+        $fullPath = Join-Path "C:\Your\Folder" $file
+        
+        if (Test-Path $fullPath) {
+            try {
+                Remove-Item $fullPath -Force
+                Write-Host "Удален: $fullPath" -ForegroundColor Green
+                $success++
+            }
+            catch {
+                Write-Host "Ошибка: $fullPath" -ForegroundColor Red
+                $errors++
+            }
+        }
+        else {
+            Write-Host "Не найден: $fullPath" -ForegroundColor Yellow
+            $errors++
+        }
+    }
+    
+    Write-Host "`nУдалено: $success, Ошибок: $errors" -ForegroundColor Cyan
+}
+else {
+    Write-Host "Удаление отменено." -ForegroundColor Green
+}
+3. Версия с логированием
+powershell
+function Remove-ComparationFilesWithLog {
+    param(
+        $ComparisonResult,
+        [string]$TargetFolder,
+        [string]$LogFile = "deletion_log.txt"
+    )
+    
+    $filesToDelete = $ComparisonResult | 
+                    Where-Object { $_.SideIndicator -eq '=>' } | 
+                    Select-Object -ExpandProperty InputObject
+    
+    if ($filesToDelete.Count -eq 0) {
+        Write-Host "Нет файлов для удаления." -ForegroundColor Green
+        return
+    }
+    
+    # Создаем лог
+    $logContent = @()
+    $logContent += "=== ЛОГ УДАЛЕНИЯ ФАЙЛОВ ==="
+    $logContent += "Дата: $(Get-Date)"
+    $logContent += "Папка: $TargetFolder"
+    $logContent += "Файлов для удаления: $($filesToDelete.Count)"
+    $logContent += ""
+    
+    Write-Host "Найдено файлов для удаления: $($filesToDelete.Count)" -ForegroundColor Yellow
+    
+    # Подтверждение
+    $filesToDelete | ForEach-Object { 
+        $fullPath = Join-Path $TargetFolder $_
+        Write-Host "  - $fullPath" -ForegroundColor Gray 
+    }
+    
+    $confirm = Read-Host "`nПродолжить удаление? (y/N)"
+    if ($confirm -ne 'y' -and $confirm -ne 'Y') {
+        $logContent += "Удаление отменено пользователем"
+        $logContent | Out-File $LogFile -Encoding UTF8
+        Write-Host "Отменено." -ForegroundColor Green
+        return
+    }
+    
+    # Удаление файлов
+    $results = @{ Deleted = 0; Failed = 0 }
+    
+    foreach ($file in $filesToDelete) {
+        $fullPath = Join-Path $TargetFolder $file
+        
+        if (Test-Path $fullPath -PathType Leaf) {
+            try {
+                Remove-Item $fullPath -Force -ErrorAction Stop
+                $msg = "УДАЛЕНО: $fullPath"
+                Write-Host $msg -ForegroundColor Green
+                $logContent += $msg
+                $results.Deleted++
+            }
+            catch {
+                $msg = "ОШИБКА: $fullPath - $($_.Exception.Message)"
+                Write-Host $msg -ForegroundColor Red
+                $logContent += $msg
+                $results.Failed++
+            }
+        }
+        else {
+            $msg = "НЕ НАЙДЕН: $fullPath"
+            Write-Host $msg -ForegroundColor Yellow
+            $logContent += $msg
+            $results.Failed++
+        }
+    }
+    
+    # Завершение лога
+    $logContent += ""
+    $logContent += "ИТОГ: Удалено $($results.Deleted), Ошибок $($results.Failed)"
+    $logContent | Out-File $LogFile -Encoding UTF8
+    
+    Write-Host "`nЛог сохранен в: $LogFile" -ForegroundColor Cyan
+    Write-Host "Удалено: $($results.Deleted), Ошибок: $($results.Failed)" -ForegroundColor Yellow
+}
+
+# Использование
+Remove-ComparationFilesWithLog -ComparisonResult $comparison -TargetFolder "C:\Your\Folder" -LogFile "deletion_results.log"
+4. Полный пример workflow
+powershell
+# Пример полного workflow от получения файлов до удаления
+$folderPath = "C:\Your\Folder"
+
+# Получаем текущие файлы в папке
+$currentFiles = [System.Collections.ArrayList]@(
+    (Get-ChildItem $folderPath -File).Name
+)
+
+# Предположим, у нас есть массив файлов, которые должны остаться
+$requiredFiles = [System.Collections.ArrayList]@('important.txt', 'config.ini', 'data.json')
+
+# Сравниваем
+$comparison = Compare-Object -ReferenceObject $requiredFiles -DifferenceObject $currentFiles
+
+Write-Host "=== АНАЛИЗ ФАЙЛОВ В ПАПКЕ ===" -ForegroundColor Yellow
+Write-Host "Требуемые файлы: $($requiredFiles.Count)" -ForegroundColor Green
+Write-Host "Текущие файлы: $($currentFiles.Count)" -ForegroundColor Cyan
+
+# Файлы для удаления (есть в папке, но не в required)
+$filesToDelete = $comparison | 
+                Where-Object { $_.SideIndicator -eq '=>' } | 
+                Select-Object -ExpandProperty InputObject
+
+if ($filesToDelete.Count -gt 0) {
+    Write-Host "`nФайлы для удаления: $($filesToDelete.Count)" -ForegroundColor Red
+    $filesToDelete | ForEach-Object { Write-Host "  - $_" -ForegroundColor Yellow }
+    
+    $confirm = Read-Host "`nУдалить лишние файлы? (y/N)"
+    
+    if ($confirm -eq 'y' -or $confirm -eq 'Y') {
+        foreach ($file in $filesToDelete) {
+            $fullPath = Join-Path $folderPath $file
+            try {
+                Remove-Item $fullPath -Force
+                Write-Host "Удален: $file" -ForegroundColor Green
+            }
+            catch {
+                Write-Host "Ошибка при удалении $file" -ForegroundColor Red
+            }
+        }
+    }
+}
+else {
+    Write-Host "Нет лишних файлов для удаления." -ForegroundColor Green
+}
