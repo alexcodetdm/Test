@@ -176,3 +176,142 @@ $server = if ($config.database.PSObject.Properties.Name -contains "server") {
     "localhost" # значение по умолчанию
 }
 Рекомендация: Для простых случаев используйте Get-Member или PSObject.Properties, для сложных вложенных структур - создайте функцию проверки.
+---------------------------------------------------------------------------------------------------------------
+
+1. Перебор свойств объекта с помощью PSObject.Properties
+powershell
+$data = Get-Content "config.json" -Raw | ConvertFrom-Json
+
+# Перебор всех свойств верхнего уровня
+foreach ($property in $data.PSObject.Properties) {
+    Write-Host "Имя свойства: $($property.Name)"
+    Write-Host "Значение: $($property.Value)"
+    Write-Host "Тип: $($property.Value.GetType().Name)"
+    Write-Host "---"
+}
+2. Перебор с помощью Get-Member
+powershell
+$data | Get-Member -MemberType NoteProperty | ForEach-Object {
+    $propertyName = $_.Name
+    $propertyValue = $data.$propertyName
+    
+    Write-Host "Свойство: $propertyName = $propertyValue"
+}
+3. Для объектов внутри свойств
+powershell
+foreach ($property in $data.PSObject.Properties) {
+    Write-Host "Свойство: $($property.Name)"
+    
+    # Если значение является объектом (имеет вложенные свойства)
+    if ($property.Value -is [PSCustomObject]) {
+        Write-Host "  Вложенные свойства:"
+        foreach ($nestedProp in $property.Value.PSObject.Properties) {
+            Write-Host "    - $($nestedProp.Name): $($nestedProp.Value)"
+        }
+    } else {
+        Write-Host "  Значение: $($property.Value)"
+    }
+}
+4. Рекурсивный обход всех вложенных свойств
+powershell
+function Iterate-JsonProperties {
+    param(
+        $Object,
+        [string]$Prefix = ""
+    )
+    
+    foreach ($property in $Object.PSObject.Properties) {
+        $fullPath = if ($Prefix) { "$Prefix.$($property.Name)" } else { $property.Name }
+        
+        if ($property.Value -is [PSCustomObject]) {
+            Write-Host "$fullPath (объект)"
+            Iterate-JsonProperties -Object $property.Value -Prefix $fullPath
+        } elseif ($property.Value -is [Array]) {
+            Write-Host "$fullPath (массив из $($property.Value.Count) элементов)"
+            for ($i = 0; $i -lt $property.Value.Count; $i++) {
+                if ($property.Value[$i] -is [PSCustomObject]) {
+                    Iterate-JsonProperties -Object $property.Value[$i] -Prefix "$fullPath[$i]"
+                } else {
+                    Write-Host "  $fullPath[$i]: $($property.Value[$i])"
+                }
+            }
+        } else {
+            Write-Host "$fullPath: $($property.Value)"
+        }
+    }
+}
+
+# Использование
+Iterate-JsonProperties -Object $data
+5. Практический пример с config.json
+json
+{
+    "app": "MyApp",
+    "version": "1.0",
+    "database": {
+        "host": "localhost",
+        "port": 5432,
+        "credentials": {
+            "username": "admin",
+            "password": "secret"
+        }
+    },
+    "features": ["auth", "logging", "api"]
+}
+powershell
+$config = Get-Content "config.json" -Raw | ConvertFrom-Json
+
+# Простой перебор
+Write-Host "=== Все свойства ==="
+foreach ($prop in $config.PSObject.Properties) {
+    Write-Host "$($prop.Name) = $($prop.Value)"
+}
+
+Write-Host "`n=== Детальный перебор ==="
+foreach ($prop in $config.PSObject.Properties) {
+    Write-Host "`nСвойство: $($prop.Name)"
+    
+    switch ($prop.Value.GetType().Name) {
+        "PSCustomObject" {
+            Write-Host "  Тип: Объект"
+            foreach ($nested in $prop.Value.PSObject.Properties) {
+                Write-Host "    $($nested.Name): $($nested.Value)"
+            }
+        }
+        "Object[]" {
+            Write-Host "  Тип: Массив"
+            Write-Host "  Элементы: $($prop.Value -join ', ')"
+        }
+        default {
+            Write-Host "  Тип: Простое значение"
+            Write-Host "  Значение: $($prop.Value)"
+        }
+    }
+}
+6. Фильтрация свойств по условию
+powershell
+# Только строковые свойства
+$config.PSObject.Properties | Where-Object { 
+    $_.Value -is [string] 
+} | ForEach-Object {
+    Write-Host "Строковое свойство: $($_.Name) = $($_.Value)"
+}
+
+# Свойства с числовыми значениями
+$config.PSObject.Properties | Where-Object { 
+    $_.Value -is [int] -or $_.Value -is [double] 
+} | ForEach-Object {
+    Write-Host "Числовое свойство: $($_.Name) = $($_.Value)"
+}
+7. Создание хэш-таблицы из свойств
+powershell
+$hash = @{}
+$config.PSObject.Properties | ForEach-Object {
+    $hash[$_.Name] = $_.Value
+}
+
+# Теперь можно работать как с обычной хэш-таблицей
+$hash.Keys | ForEach-Object {
+    Write-Host "$_ = $($hash[$_])"
+}
+Таким образом можно легко исследовать структуру JSON файла и обрабатывать его свойства в циклах!
