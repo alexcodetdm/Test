@@ -78,3 +78,101 @@ ConvertFrom-Json создает объекты PSCustomObject
 JSON чувствителен к регистру символов
 
 Это основные способы работы с JSON в PowerShell!
+
+---------------------------------------------------------------------------------------
+
+В PowerShell есть несколько способов проверить наличие свойства в JSON объекте:
+
+1. Проверка с помощью Get-Member
+powershell
+$data = Get-Content "config.json" -Raw | ConvertFrom-Json
+
+# Проверка наличия свойства
+if ($data | Get-Member -Name "propertyName") {
+    Write-Host "Свойство существует"
+    $value = $data.propertyName
+} else {
+    Write-Host "Свойство не существует"
+}
+2. Проверка с помощью PSObject.Properties
+powershell
+if ($data.PSObject.Properties.Name -contains "propertyName") {
+    Write-Host "Свойство существует"
+}
+3. Проверка для вложенных свойств
+powershell
+# Проверка вложенного свойства
+if ($data.database.PSObject.Properties.Name -contains "server") {
+    Write-Host "Вложенное свойство существует"
+    $server = $data.database.server
+}
+4. Безопасное обращение с помощью ?
+powershell
+# Если свойство может не существовать
+$value = $data?.propertyName
+
+# Для вложенных свойств
+$server = $data?.database?.server
+5. Функция для проверки вложенных свойств
+powershell
+function Test-JsonProperty {
+    param($Object, $PropertyPath)
+    
+    $properties = $PropertyPath -split '\.'
+    $current = $Object
+    
+    foreach ($prop in $properties) {
+        if ($current.PSObject.Properties.Name -contains $prop) {
+            $current = $current.$prop
+        } else {
+            return $false
+        }
+    }
+    return $true
+}
+
+# Использование
+if (Test-JsonProperty -Object $data -PropertyPath "database.server") {
+    Write-Host "Свойство database.server существует"
+}
+6. Try-Catch для безопасного доступа
+powershell
+try {
+    $value = $data.database.server
+    Write-Host "Свойство существует: $value"
+} catch {
+    Write-Host "Свойство не существует"
+}
+7. Проверка с значением по умолчанию
+powershell
+# Если свойство не существует, вернет $null
+$value = $data.PSObject.Properties["propertyName"]?.Value
+
+# Или с значением по умолчанию
+$value = if ($data.PSObject.Properties.Name -contains "propertyName") {
+    $data.propertyName
+} else {
+    "default value"
+}
+Полный пример
+powershell
+$config = Get-Content "config.json" -Raw | ConvertFrom-Json
+
+# Проверяем несколько свойств
+$requiredProperties = @("database", "settings", "database.server")
+
+foreach ($prop in $requiredProperties) {
+    if (Test-JsonProperty -Object $config -PropertyPath $prop) {
+        Write-Host "✓ Свойство '$prop' существует" -ForegroundColor Green
+    } else {
+        Write-Host "✗ Свойство '$prop' отсутствует" -ForegroundColor Red
+    }
+}
+
+# Безопасное получение значения
+$server = if ($config.database.PSObject.Properties.Name -contains "server") {
+    $config.database.server
+} else {
+    "localhost" # значение по умолчанию
+}
+Рекомендация: Для простых случаев используйте Get-Member или PSObject.Properties, для сложных вложенных структур - создайте функцию проверки.
