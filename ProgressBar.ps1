@@ -115,3 +115,83 @@ Clear-Host - для полного обновления экрана
 Используйте цвета для лучшей визуализации
 
 Выберите подходящий вариант в зависимости от ваших потребностей!
+
+
+-----------------------------------------------------------------------
+
+1. Исправленный счетчик с очисткой строки
+powershell
+$seconds = 10
+for ($i = $seconds; $i -gt 0; $i--) {
+    Write-Host "Ожидание: $i секунд" -NoNewline
+    Start-Sleep -Seconds 1
+    Write-Host "`r" -NoNewline
+    # Добавляем пробелы для очистки предыдущего текста
+    Write-Host " " * ("Ожидание: $i секунд".Length) -NoNewline
+    Write-Host "`r" -NoNewline
+}
+Write-Host "Ожидание завершено!"
+2. Более надежный способ с фиксированной длиной
+powershell
+$seconds = 10
+for ($i = $seconds; $i -gt 0; $i--) {
+    $text = "Ожидание: $i секунд "
+    Write-Host $text -NoNewline
+    Start-Sleep -Seconds 1
+    Write-Host ("`r" + " " * $text.Length + "`r") -NoNewline
+}
+Write-Host "Ожидание завершено!"
+3. Простой способ с Backspace
+powershell
+$seconds = 10
+for ($i = $seconds; $i -gt 0; $i--) {
+    Write-Host "Ожидание: $i секунд" -NoNewline
+    Start-Sleep -Seconds 1
+    # Используем Backspace для возврата
+    Write-Host ("`b" * ("Ожидание: $i секунд".Length)) -NoNewline
+}
+Write-Host "Готово!"
+4. Лучший вариант - с фиксированным форматом
+powershell
+$seconds = 10
+for ($i = $seconds; $i -gt 0; $i--) {
+    Write-Host ("Ожидание: {0:D2} секунд" -f $i) -NoNewline
+    Start-Sleep -Seconds 1
+    Write-Host "`r" -NoNewline
+}
+Write-Host "Ожидание завершено!        "
+5. Универсальная функция без проблем с очисткой
+powershell
+function Show-SimpleCountdown {
+    param(
+        [int]$Seconds = 10,
+        [string]$Message = "Ожидание"
+    )
+    
+    $maxLength = 0
+    for ($i = $Seconds; $i -gt 0; $i--) {
+        $text = "$Message: $i секунд"
+        if ($text.Length -gt $maxLength) { $maxLength = $text.Length }
+        
+        Write-Host $text -NoNewline
+        Start-Sleep -Seconds 1
+        Write-Host "`r" -NoNewline
+        Write-Host (" " * $maxLength) -NoNewline
+        Write-Host "`r" -NoNewline
+    }
+    Write-Host "$Message завершено!"
+}
+
+# Использование
+Show-SimpleCountdown -Seconds 10 -Message "Загрузка"
+Основные причины проблемы и решения:
+
+Проблема: Разная длина чисел (10 vs 1 символ)
+
+Решение: Использовать форматирование {0:D2} для фиксированной длины
+
+Проблема: Неполная очистка строки
+
+Решение: Добавлять пробелы для затирания предыдущего текста
+
+Рекомендую использовать вариант 4 с форматированием - он самый стабильный!
