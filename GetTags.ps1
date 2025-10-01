@@ -823,3 +823,365 @@ Get-BitbucketRepos -Workspace $Workspace -Token $Token
 Репозиторий не существует
 
 Опечатки в URL
+--------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+
+
+в Bitbucket API можно использовать различные параметры для фильтрации тегов. Вот основные способы:
+
+1. Параметры пагинации и сортировки
+powershell
+function Get-BitbucketTagsWithPagination {
+    param(
+        [string]$Workspace,
+        [string]$RepoSlug,
+        [string]$Token,
+        [int]$PageLen = 50,
+        [int]$Page = 1,
+        [string]$SortBy = "name"
+    )
+    
+    $url = "https://api.bitbucket.org/2.0/repositories/$Workspace/$RepoSlug/refs/tags"
+    
+    $queryParams = @{
+        "pagelen" = $PageLen
+        "page" = $Page
+        "sort" = $SortBy
+    }
+    
+    $headers = @{
+        "Authorization" = "Bearer $Token"
+    }
+    
+    try {
+        $response = Invoke-RestMethod -Uri $url -Headers $headers -Body $queryParams
+        return $response
+    }
+    catch {
+        Write-Error "Ошибка: $($_.Exception.Message)"
+        return $null
+    }
+}
+
+# Использование
+$tags = Get-BitbucketTagsWithPagination -Workspace "workspace" -RepoSlug "repo" -Token "token" -PageLen 100 -SortBy "-name"
+2. Фильтрация по имени тега (шаблоны)
+powershell
+function Get-BitbucketTagsFiltered {
+    param(
+        [string]$Workspace,
+        [string]$RepoSlug,
+        [string]$Token,
+        [string]$NameFilter = "*",
+        [string]$StartsWith,
+        [string]$EndsWith
+    )
+    
+    $url = "https://api.bitbucket.org/2.0/repositories/$Workspace/$RepoSlug/refs/tags"
+    $headers = @{ "Authorization" = "Bearer $Token" }
+    
+    $allTags = @()
+    
+    try {
+        do {
+            $response = Invoke-RestMethod -Uri $url -Headers $headers
+            $allTags += $response.values
+            $url = $response.next
+        } while ($url)
+        
+        # Применяем фильтры
+        $filteredTags = $allTags
+        
+        if ($NameFilter -ne "*") {
+            $filteredTags = $filteredTags | Where-Object { $_.name -like $NameFilter }
+        }
+        
+        if ($StartsWith) {
+            $filteredTags = $filteredTags | Where-Object { $_.name -like "$StartsWith*" }
+        }
+        
+        if ($EndsWith) {
+            $filteredTags = $filteredTags | Where-Object { $_.name -like "*$EndsWith" }
+        }
+        
+        return $filteredTags
+    }
+    catch {
+        Write-Error "Ошибка: $($_.Exception.Message)"
+        return $null
+    }
+}
+
+# Примеры использования
+$v1Tags = Get-BitbucketTagsFiltered -Workspace "w" -RepoSlug "r" -Token "t" -StartsWith "v1"
+$releaseTags = Get-BitbucketTagsFiltered -Workspace "w" -RepoSlug "r" -Token "t" -EndsWith "-release"
+$specificTags = Get-BitbucketTagsFiltered -Workspace "w" -RepoSlug "r" -Token "t" -NameFilter "v1.2.*"
+3. Фильтрация по дате
+powershell
+function Get-BitbucketTagsByDate {
+    param(
+        [string]$Workspace,
+        [string]$RepoSlug,
+        [string]$Token,
+        [datetime]$FromDate,
+        [datetime]$ToDate,
+        [switch]$NewestFirst
+    )
+    
+    $url = "https://api.bitbucket.org/2.0/repositories/$Workspace/$RepoSlug/refs/tags"
+    $headers = @{ "Authorization" = "Bearer $Token" }
+    
+    $allTags = @()
+    
+    try {
+        do {
+            $response = Invoke-RestMethod -Uri $url -Headers $headers
+            $allTags += $response.values
+            $url = $response.next
+        } while ($url)
+        
+        # Фильтрация по дате
+        if ($FromDate) {
+            $allTags = $allTags | Where-Object { [datetime]$_.date -ge $FromDate }
+        }
+        
+        if ($ToDate) {
+            $allTags = $allTags | Where-Object { [datetime]$_.date -le $ToDate }
+        }
+        
+        # Сортировка
+        if ($NewestFirst) {
+            $allTags = $allTags | Sort-Object { [datetime]$_.date } -Descending
+        } else {
+            $allTags = $allTags | Sort-Object { [datetime]$_.date }
+        }
+        
+        return $allTags
+    }
+    catch {
+        Write-Error "Ошибка: $($_.Exception.Message)"
+        return $null
+    }
+}
+
+# Использование
+$recentTags = Get-BitbucketTagsByDate -Workspace "w" -RepoSlug "r" -Token "t" -FromDate (Get-Date).AddDays(-30) -NewestFirst
+4. Поиск тегов по шаблону (регулярные выражения)
+powershell
+function Get-BitbucketTagsByPattern {
+    param(
+        [string]$Workspace,
+        [string]$RepoSlug,
+        [string]$Token,
+        [string]$Pattern,
+        [switch]$CaseSensitive
+    )
+    
+    $url = "https://api.bitbucket.org/2.0/repositories/$Workspace/$RepoSlug/refs/tags"
+    $headers = @{ "Authorization" = "Bearer $Token" }
+    
+    $allTags = @()
+    
+    try {
+        do {
+            $response = Invoke-RestMethod -Uri $url -Headers $headers
+            $allTags += $response.values
+            $url = $response.next
+        } while ($url)
+        
+        # Фильтрация по регулярному выражению
+        if ($Pattern) {
+            if ($CaseSensitive) {
+                $allTags = $allTags | Where-Object { $_.name -cmatch $Pattern }
+            } else {
+                $allTags = $allTags | Where-Object { $_.name -match $Pattern }
+            }
+        }
+        
+        return $allTags
+    }
+    catch {
+        Write-Error "Ошибка: $($_.Exception.Message)"
+        return $null
+    }
+}
+
+# Примеры использования
+$semverTags = Get-BitbucketTagsByPattern -Workspace "w" -RepoSlug "r" -Token "t" -Pattern "^v?\d+\.\d+\.\d+$"
+$hotfixTags = Get-BitbucketTagsByPattern -Workspace "w" -RepoSlug "r" -Token "t" -Pattern "hotfix"
+$rcTags = Get-BitbucketTagsByPattern -Workspace "w" -RepoSlug "r" -Token "t" -Pattern "-rc\d+$"
+5. Комплексная фильтрация с параметрами
+powershell
+function Get-BitbucketTagsAdvanced {
+    param(
+        [string]$Workspace,
+        [string]$RepoSlug,
+        [string]$Token,
+        [string]$NameFilter,
+        [string]$Author,
+        [datetime]$FromDate,
+        [datetime]$ToDate,
+        [string]$SortBy = "name",
+        [switch]$Descending,
+        [int]$Limit = 0
+    )
+    
+    $url = "https://api.bitbucket.org/2.0/repositories/$Workspace/$RepoSlug/refs/tags"
+    $headers = @{ "Authorization" = "Bearer $Token" }
+    
+    $allTags = @()
+    
+    try {
+        Write-Host "Получение тегов..." -ForegroundColor Yellow
+        do {
+            $response = Invoke-RestMethod -Uri $url -Headers $headers
+            $allTags += $response.values
+            $url = $response.next
+        } while ($url)
+        
+        Write-Host "Найдено тегов: $($allTags.Count)" -ForegroundColor Green
+        
+        # Применяем фильтры
+        $filteredTags = $allTags
+        
+        # Фильтр по имени
+        if ($NameFilter) {
+            $filteredTags = $filteredTags | Where-Object { $_.name -like $NameFilter }
+            Write-Host "После фильтра по имени: $($filteredTags.Count)" -ForegroundColor Gray
+        }
+        
+        # Фильтр по автору
+        if ($Author) {
+            $filteredTags = $filteredTags | Where-Object { $_.target.author.raw -like "*$Author*" }
+            Write-Host "После фильтра по автору: $($filteredTags.Count)" -ForegroundColor Gray
+        }
+        
+        # Фильтр по дате
+        if ($FromDate) {
+            $filteredTags = $filteredTags | Where-Object { [datetime]$_.date -ge $FromDate }
+            Write-Host "После фильтра FromDate: $($filteredTags.Count)" -ForegroundColor Gray
+        }
+        
+        if ($ToDate) {
+            $filteredTags = $filteredTags | Where-Object { [datetime]$_.date -le $ToDate }
+            Write-Host "После фильтра ToDate: $($filteredTags.Count)" -ForegroundColor Gray
+        }
+        
+        # Сортировка
+        $sortDirection = if ($Descending) { "Descending" } else { "Ascending" }
+        
+        switch ($SortBy.ToLower()) {
+            "name" { 
+                $filteredTags = $filteredTags | Sort-Object name -$sortDirection 
+            }
+            "date" { 
+                $filteredTags = $filteredTags | Sort-Object { [datetime]$_.date } -$sortDirection 
+            }
+            "author" { 
+                $filteredTags = $filteredTags | Sort-Object { $_.target.author.raw } -$sortDirection 
+            }
+            default { 
+                $filteredTags = $filteredTags | Sort-Object name -$sortDirection 
+            }
+        }
+        
+        # Лимит
+        if ($Limit -gt 0 -and $filteredTags.Count -gt $Limit) {
+            $filteredTags = $filteredTags[0..($Limit-1)]
+        }
+        
+        return $filteredTags
+    }
+    catch {
+        Write-Error "Ошибка: $($_.Exception.Message)"
+        return $null
+    }
+}
+6. Примеры использования фильтров
+powershell
+# Установите ваши данные
+$Workspace = "your-workspace"
+$RepoSlug = "your-repo" 
+$Token = "your-token"
+
+# 1. Получить последние 10 тегов
+$latestTags = Get-BitbucketTagsAdvanced -Workspace $Workspace -RepoSlug $RepoSlug -Token $Token -SortBy "date" -Descending -Limit 10
+
+# 2. Получить теги версий 2.x
+$v2Tags = Get-BitbucketTagsAdvanced -Workspace $Workspace -RepoSlug $RepoSlug -Token $Token -NameFilter "v2.*"
+
+# 3. Получить теги за последний месяц
+$recentTags = Get-BitbucketTagsAdvanced -Workspace $Workspace -RepoSlug $RepoSlug -Token $Token -FromDate (Get-Date).AddDays(-30) -SortBy "date" -Descending
+
+# 4. Получить теги конкретного автора
+$authorTags = Get-BitbucketTagsAdvanced -Workspace $Workspace -RepoSlug $RepoSlug -Token $Token -Author "john.doe"
+
+# 5. Комплексный пример
+$complexFilter = Get-BitbucketTagsAdvanced -Workspace $Workspace -RepoSlug $RepoSlug -Token $Token -NameFilter "release-*" -FromDate (Get-Date).AddDays(-90) -SortBy "date" -Descending -Limit 5
+
+# Вывод результатов
+if ($complexFilter) {
+    Write-Host "`n=== РЕЗУЛЬТАТЫ ФИЛЬТРАЦИИ ===" -ForegroundColor Green
+    $complexFilter | ForEach-Object {
+        Write-Host "🏷️  $($_.name)" -ForegroundColor Yellow
+        Write-Host "   📅 $([datetime]$_.date)" -ForegroundColor Gray
+        Write-Host "   👤 $($_.target.author.raw)" -ForegroundColor Gray
+        Write-Host "---"
+    }
+}
+7. Параметры сортировки через API
+powershell
+function Get-BitbucketTagsWithQueryParams {
+    param(
+        [string]$Workspace,
+        [string]$RepoSlug,
+        [string]$Token,
+        [string]$Query = "",
+        [string]$Sort = "-name",
+        [int]$PageLen = 100
+    )
+    
+    $baseUrl = "https://api.bitbucket.org/2.0/repositories/$Workspace/$RepoSlug/refs/tags"
+    
+    # Строим URL с параметрами
+    $queryParams = @{
+        "pagelen" = $PageLen
+        "sort" = $Sort
+    }
+    
+    if ($Query) {
+        $queryParams["q"] = $Query
+    }
+    
+    $url = $baseUrl + "?" + ($queryParams.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join "&"
+    
+    $headers = @{ "Authorization" = "Bearer $Token" }
+    
+    Write-Host "URL: $url" -ForegroundColor Gray
+    
+    try {
+        $allTags = @()
+        do {
+            $response = Invoke-RestMethod -Uri $url -Headers $headers
+            $allTags += $response.values
+            $url = $response.next
+        } while ($url)
+        
+        return $allTags
+    }
+    catch {
+        Write-Error "Ошибка: $($_.Exception.Message)"
+        return $null
+    }
+}
+Доступные параметры сортировки:
+
+name - по имени (возрастание)
+
+-name - по имени (убывание)
+
+target.date - по дате коммита
+
+-target.date - по дате коммита (новые сначала)
+
+Примечание: Bitbucket API не поддерживает прямую фильтрацию через query parameters для тегов, поэтому фильтрация выполняется на стороне PowerShell после получения всех данных.
