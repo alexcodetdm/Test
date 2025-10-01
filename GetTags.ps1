@@ -560,3 +560,266 @@ $tags = Get-BitbucketTagsDetailed -Workspace $workspace -RepoSlug $repo -Token $
 # Выводим последние 5 тегов
 $tags | Sort-Object Date -Descending | Select-Object -First 5 | Format-Table
 Эти примеры покрывают основные сценарии работы с тегами Bitbucket через PowerShell с поддержкой пагинации и обработкой ошибок.
+
+-----------------------------------------------------------------------------------------
+Ошибка 404 означает, что ресурс не найден. Давайте разберем возможные причины и решения:
+
+1. Проверка базовых параметров
+powershell
+function Test-BitbucketConnection {
+    param(
+        [string]$Workspace,
+        [string]$RepoSlug,
+        [string]$Token
+    )
+    
+    # Проверяем существование репозитория
+    $repoUrl = "https://api.bitbucket.org/2.0/repositories/$Workspace/$RepoSlug"
+    $headers = @{
+        "Authorization" = "Bearer $Token"
+    }
+    
+    try {
+        Write-Host "Проверяем репозиторий: $Workspace/$RepoSlug" -ForegroundColor Yellow
+        $repoResponse = Invoke-RestMethod -Uri $repoUrl -Headers $headers -Method GET
+        Write-Host "✅ Репозиторий найден: $($repoResponse.name)" -ForegroundColor Green
+        return $true
+    }
+    catch {
+        Write-Host "❌ Репозиторий не найден или нет доступа" -ForegroundColor Red
+        Write-Host "Ошибка: $($_.Exception.Message)" -ForegroundColor Red
+        return $false
+    }
+}
+2. Исправленная версия функции для получения тегов
+powershell
+function Get-BitbucketTagsFixed {
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$Workspace,
+        
+        [Parameter(Mandatory=$true)]
+        [string]$RepoSlug,
+        
+        [Parameter(Mandatory=$true)]
+        [string]$Token
+    )
+    
+    # Сначала проверяем соединение
+    if (-not (Test-BitbucketConnection -Workspace $Workspace -RepoSlug $RepoSlug -Token $Token)) {
+        return $null
+    }
+    
+    $url = "https://api.bitbucket.org/2.0/repositories/$Workspace/$RepoSlug/refs/tags"
+    $headers = @{
+        "Authorization" = "Bearer $Token"
+    }
+    
+    $allTags = @()
+    
+    try {
+        Write-Host "Получаем теги..." -ForegroundColor Yellow
+        
+        do {
+            Write-Host "Запрос: $url" -ForegroundColor Gray
+            $response = Invoke-RestMethod -Uri $url -Headers $headers -Method GET
+            
+            if ($response.values) {
+                $allTags += $response.values
+                Write-Host "Получено $($response.values.Count) тегов" -ForegroundColor Green
+            }
+            
+            # Проверяем наличие следующей страницы
+            if ($response.next) {
+                $url = $response.next
+            } else {
+                $url = $null
+            }
+        } while ($url)
+        
+        Write-Host "Всего получено тегов: $($allTags.Count)" -ForegroundColor Green
+        return $allTags
+    }
+    catch {
+        Write-Host "❌ Ошибка при получении тегов: $($_.Exception.Message)" -ForegroundColor Red
+        Write-Host "Статус код: $($_.Exception.Response.StatusCode.value__)" -ForegroundColor Red
+        return $null
+    }
+}
+3. Диагностика проблемы
+powershell
+function Debug-BitbucketAccess {
+    param(
+        [string]$Workspace,
+        [string]$RepoSlug,
+        [string]$Token
+    )
+    
+    $baseUrl = "https://api.bitbucket.org/2.0/repositories"
+    $headers = @{
+        "Authorization" = "Bearer $Token"
+    }
+    
+    Write-Host "=== ДИАГНОСТИКА BITBUCKET API ===" -ForegroundColor Cyan
+    
+    # 1. Проверяем список репозиториев в workspace
+    try {
+        $workspaceUrl = "$baseUrl/$Workspace"
+        Write-Host "`n1. Проверяем workspace: $Workspace" -ForegroundColor Yellow
+        $workspaceResponse = Invoke-RestMethod -Uri $workspaceUrl -Headers $headers
+        Write-Host "✅ Workspace доступен" -ForegroundColor Green
+    }
+    catch {
+        Write-Host "❌ Workspace не найден: $($_.Exception.Message)" -ForegroundColor Red
+    }
+    
+    # 2. Проверяем конкретный репозиторий
+    try {
+        $repoUrl = "$baseUrl/$Workspace/$RepoSlug"
+        Write-Host "`n2. Проверяем репозиторий: $RepoSlug" -ForegroundColor Yellow
+        $repoResponse = Invoke-RestMethod -Uri $repoUrl -Headers $headers
+        Write-Host "✅ Репозиторий найден: $($repoResponse.name)" -ForegroundColor Green
+        Write-Host "   Full Name: $($repoResponse.full_name)" -ForegroundColor Gray
+        Write-Host "   Is Private: $($repoResponse.is_private)" -ForegroundColor Gray
+    }
+    catch {
+        Write-Host "❌ Репозиторий не найден: $($_.Exception.Message)" -ForegroundColor Red
+    }
+    
+    # 3. Проверяем теги
+    try {
+        $tagsUrl = "$baseUrl/$Workspace/$RepoSlug/refs/tags"
+        Write-Host "`n3. Проверяем endpoint тегов" -ForegroundColor Yellow
+        $tagsResponse = Invoke-RestMethod -Uri $tagsUrl -Headers $headers
+        Write-Host "✅ Endpoint тегов доступен" -ForegroundColor Green
+        Write-Host "   Найдено тегов: $($tagsResponse.values.Count)" -ForegroundColor Gray
+        Write-Host "   Pagination: $($tagsResponse.pagelen)" -ForegroundColor Gray
+    }
+    catch {
+        Write-Host "❌ Endpoint тегов недоступен: $($_.Exception.Message)" -ForegroundColor Red
+    }
+    
+    # 4. Проверяем права доступа
+    try {
+        $userUrl = "https://api.bitbucket.org/2.0/user"
+        Write-Host "`n4. Проверяем аутентификацию" -ForegroundColor Yellow
+        $userResponse = Invoke-RestMethod -Uri $userUrl -Headers $headers
+        Write-Host "✅ Аутентификация успешна" -ForegroundColor Green
+        Write-Host "   Пользователь: $($userResponse.display_name)" -ForegroundColor Gray
+        Write-Host "   Username: $($userResponse.username)" -ForegroundColor Gray
+    }
+    catch {
+        Write-Host "❌ Ошибка аутентификации: $($_.Exception.Message)" -ForegroundColor Red
+    }
+}
+4. Практическое использование с обработкой ошибок
+powershell
+# Основной скрипт
+$Workspace = "your-workspace"  # Имя workspace/team, а не email!
+$RepoSlug = "your-repository"  # Имя репозитория (slug)
+$Token = "your-token"
+
+Write-Host "Начинаем диагностику..." -ForegroundColor Cyan
+
+# Запускаем диагностику
+Debug-BitbucketAccess -Workspace $Workspace -RepoSlug $RepoSlug -Token $Token
+
+# Если диагностика прошла успешно, получаем теги
+Write-Host "`nПолучаем теги..." -ForegroundColor Cyan
+$tags = Get-BitbucketTagsFixed -Workspace $Workspace -RepoSlug $RepoSlug -Token $Token
+
+if ($tags) {
+    Write-Host "`n=== НАЙДЕННЫЕ ТЕГИ ===" -ForegroundColor Green
+    $tags | ForEach-Object {
+        Write-Host "🏷️  $($_.name)" -ForegroundColor Yellow
+        Write-Host "   📍 Commit: $($_.target.hash)" -ForegroundColor Gray
+        Write-Host "   📅 Date: $($_.date)" -ForegroundColor Gray
+        Write-Host "---"
+    }
+} else {
+    Write-Host "❌ Теги не найдены или произошла ошибка" -ForegroundColor Red
+}
+5. Частые причины ошибки 404:
+powershell
+function Check-CommonIssues {
+    param(
+        [string]$Workspace,
+        [string]$RepoSlug,
+        [string]$Token
+    )
+    
+    Write-Host "`n=== ПРОВЕРКА ЧАСТЫХ ПРОБЛЕМ ===" -ForegroundColor Cyan
+    
+    # 1. Проверяем формат workspace
+    if ($Workspace -contains "@") {
+        Write-Host "❌ Workspace не должен быть email!" -ForegroundColor Red
+        Write-Host "   Используйте имя workspace/team, а не email" -ForegroundColor Yellow
+    }
+    
+    # 2. Проверяем чувствительность к регистру
+    Write-Host "`nПроверяем регистр символов..." -ForegroundColor Yellow
+    Write-Host "   Workspace: $Workspace" -ForegroundColor Gray
+    Write-Host "   Repo Slug: $RepoSlug" -ForegroundColor Gray
+    
+    # 3. Проверяем специальные символы
+    if ($RepoSlug -match "[^a-zA-Z0-9\-_]") {
+        Write-Host "❌ Repo slug содержит недопустимые символы" -ForegroundColor Red
+    }
+    
+    # 4. Предлагаем получить список всех репозиториев
+    Write-Host "`nЧтобы увидеть все доступные репозитории, выполните:" -ForegroundColor Yellow
+    Write-Host "  Get-BitbucketRepos -Workspace `"$Workspace`" -Token `"***`"" -ForegroundColor White
+}
+
+# Функция для получения списка репозиториев
+function Get-BitbucketRepos {
+    param(
+        [string]$Workspace,
+        [string]$Token
+    )
+    
+    $url = "https://api.bitbucket.org/2.0/repositories/$Workspace"
+    $headers = @{ "Authorization" = "Bearer $Token" }
+    
+    try {
+        $repos = @()
+        do {
+            $response = Invoke-RestMethod -Uri $url -Headers $headers
+            $repos += $response.values
+            $url = $response.next
+        } while ($url)
+        
+        Write-Host "`nДоступные репозитории в $Workspace :" -ForegroundColor Green
+        $repos | ForEach-Object {
+            Write-Host "  📁 $($_.name) (slug: $($_.slug))" -ForegroundColor Yellow
+        }
+        
+        return $repos
+    }
+    catch {
+        Write-Host "❌ Ошибка: $($_.Exception.Message)" -ForegroundColor Red
+    }
+}
+Запустите диагностику:
+powershell
+# Замените на ваши реальные данные
+$Workspace = "your-actual-workspace-name"
+$RepoSlug = "your-actual-repo-name" 
+$Token = "your-actual-token"
+
+# Сначала диагностика
+Debug-BitbucketAccess -Workspace $Workspace -RepoSlug $RepoSlug -Token $Token
+
+# Если репозиторий не найден, посмотрите список доступных
+Get-BitbucketRepos -Workspace $Workspace -Token $Token
+Основные причины 404:
+
+Неправильное имя workspace (используйте имя команды, а не email)
+
+Неправильное имя репозитория (slug)
+
+Нет прав доступа к репозиторию
+
+Репозиторий не существует
+
+Опечатки в URL
