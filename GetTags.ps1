@@ -1185,3 +1185,276 @@ target.date - по дате коммита
 -target.date - по дате коммита (новые сначала)
 
 Примечание: Bitbucket API не поддерживает прямую фильтрацию через query parameters для тегов, поэтому фильтрация выполняется на стороне PowerShell после получения всех данных.
+
+---------------------------------------------
+-----------------------------------------------
+----------------------------------------------
+
+2. Фильтрация по имени тега с поиском последнего тега
+powershell
+function Get-LatestVersionTag {
+    param(
+        [string]$Workspace,
+        [string]$RepoSlug,
+        [string]$Token,
+        [string]$Pattern = "V\d+\.\d+"
+    )
+    
+    $url = "https://api.bitbucket.org/2.0/repositories/$Workspace/$RepoSlug/refs/tags"
+    $headers = @{ "Authorization" = "Bearer $Token" }
+    
+    $allTags = @()
+    
+    try {
+        Write-Host "Получение тегов из Bitbucket..." -ForegroundColor Yellow
+        
+        # Получаем все теги с пагинацией
+        do {
+            $response = Invoke-RestMethod -Uri $url -Headers $headers
+            $allTags += $response.values
+            Write-Host "Получено $($response.values.Count) тегов..." -ForegroundColor Gray
+            $url = $response.next
+        } while ($url)
+        
+        Write-Host "Всего получено тегов: $($allTags.Count)" -ForegroundColor Green
+        
+        # Фильтруем теги по шаблону (только V323.00, V323.01 и т.д.)
+        $versionTags = $allTags | Where-Object { $_.name -match "^$Pattern\.\d+$" }
+        
+        Write-Host "Найдено версионных тегов: $($versionTags.Count)" -ForegroundColor Green
+        
+        if ($versionTags.Count -eq 0) {
+            Write-Host "❌ Теги по шаблону '$Pattern' не найдены" -ForegroundColor Red
+            return $null
+        }
+        
+        # Создаем массив только с ID тегов
+        $tagIds = $versionTags | ForEach-Object { $_.name }
+        
+        Write-Host "`n🔍 Все найденные версионные теги:" -ForegroundColor Cyan
+        $tagIds | Sort-Object | ForEach-Object { Write-Host "   📋 $_" -ForegroundColor Gray }
+        
+        # Сортируем теги как версии и находим последний
+        $latestTag = $tagIds | Sort-Object { 
+            # Преобразуем "V323.00" в версию для правильной сортировки
+            if ($_ -match "^V(\d+)\.(\d+)$") {
+                [version]"$($matches[1]).$($matches[2])"
+            } else {
+                [version]"0.0"
+            }
+        } | Select-Object -Last 1
+        
+        Write-Host "`n🎯 Самый последний тег: $latestTag" -ForegroundColor Green
+        
+        # Возвращаем массив ID и последний тег
+        return @{
+            AllVersionTags = $tagIds | Sort-Object
+            LatestTag = $latestTag
+            LatestTagInfo = $versionTags | Where-Object { $_.name -eq $latestTag } | Select-Object -First 1
+        }
+    }
+    catch {
+        Write-Error "❌ Ошибка: $($_.Exception.Message)"
+        return $null
+    }
+}
+Альтернативная версия с расширенными возможностями
+powershell
+function Get-VersionTagsAdvanced {
+    param(
+        [string]$Workspace,
+        [string]$RepoSlug,
+        [string]$Token,
+        [string]$VersionPrefix = "V",
+        [switch]$IncludeDetails
+    )
+    
+    $url = "https://api.bitbucket.org/2.0/repositories/$Workspace/$RepoSlug/refs/tags"
+    $headers = @{ "Authorization" = "Bearer $Token" }
+    
+    $allTags = @()
+    
+    try {
+        Write-Host "🔄 Загрузка тегов из $Workspace/$RepoSlug..." -ForegroundColor Yellow
+        
+        # Получаем все теги
+        do {
+            $response = Invoke-RestMethod -Uri $url -Headers $headers
+            $allTags += $response.values
+            $url = $response.next
+        } while ($url)
+        
+        Write-Host "✅ Получено тегов: $($allTags.Count)" -ForegroundColor Green
+        
+        # Фильтруем теги по шаблону VXXX.XX
+        $versionTags = $allTags | Where-Object { 
+            $_.name -match "^${VersionPrefix}\d+\.\d+$"
+        }
+        
+        if ($versionTags.Count -eq 0) {
+            Write-Host "❌ Теги формата '${VersionPrefix}XXX.XX' не найдены" -ForegroundColor Red
+            
+            # Показываем какие теги вообще есть
+            $otherTags = $allTags | Select-Object -First 10 | ForEach-Object { $_.name }
+            Write-Host "📋 Первые 10 тегов в репозитории:" -ForegroundColor Yellow
+            $otherTags | ForEach-Object { Write-Host "   📝 $_" -ForegroundColor Gray }
+            
+            return $null
+        }
+        
+        # Создаем массив только с ID тегов
+        $tagIds = $versionTags | ForEach-Object { $_.name }
+        
+        # Сортируем как версии
+        $sortedTags = $tagIds | Sort-Object { 
+            if ($_ -match "^${VersionPrefix}(\d+)\.(\d+)$") {
+                [version]"$($matches[1]).$($matches[2])"
+            } else {
+                [version]"0.0"
+            }
+        }
+        
+        $latestTag = $sortedTags | Select-Object -Last 1
+        
+        Write-Host "`n📊 Статистика версионных тегов:" -ForegroundColor Cyan
+        Write-Host "   Всего версионных тегов: $($sortedTags.Count)" -ForegroundColor White
+        Write-Host "   Первый тег: $($sortedTags[0])" -ForegroundColor Gray
+        Write-Host "   Последний тег: $latestTag" -ForegroundColor Green
+        Write-Host "   Диапазон: $($sortedTags[0]) - $latestTag" -ForegroundColor Gray
+        
+        Write-Host "`n📋 Все версионные теги (отсортированные):" -ForegroundColor Cyan
+        $sortedTags | ForEach-Object { Write-Host "   🏷️  $_" -ForegroundColor Gray }
+        
+        # Формируем результат
+        $result = @{
+            AllVersionTags = $sortedTags
+            LatestTag = $latestTag
+            Count = $sortedTags.Count
+        }
+        
+        # Добавляем детальную информацию если нужно
+        if ($IncludeDetails) {
+            $result.LatestTagInfo = $versionTags | Where-Object { $_.name -eq $latestTag } | Select-Object -First 1
+            $result.AllTagDetails = $versionTags
+        }
+        
+        return $result
+    }
+    catch {
+        Write-Error "❌ Ошибка при получении тегов: $($_.Exception.Message)"
+        return $null
+    }
+}
+Функция для сравнения версий и поиска следующего тега
+powershell
+function Get-NextVersionTag {
+    param(
+        [string]$Workspace,
+        [string]$RepoSlug,
+        [string]$Token,
+        [string]$VersionPrefix = "V"
+    )
+    
+    # Получаем текущие теги
+    $currentTags = Get-VersionTagsAdvanced -Workspace $Workspace -RepoSlug $RepoSlug -Token $Token -VersionPrefix $VersionPrefix
+    
+    if (-not $currentTags) {
+        Write-Host "❌ Не удалось получить теги или они не найдены" -ForegroundColor Red
+        return $null
+    }
+    
+    $latestTag = $currentTags.LatestTag
+    
+    # Парсим последний тег
+    if ($latestTag -match "^${VersionPrefix}(\d+)\.(\d+)$") {
+        $major = [int]$matches[1]
+        $minor = [int]$matches[2]
+        
+        # Предлагаем следующий тег
+        $nextMinor = $minor + 1
+        $nextTag = "${VersionPrefix}${major}.$($nextMinor.ToString("00"))"
+        
+        Write-Host "`n🎯 Следующий предлагаемый тег: $nextTag" -ForegroundColor Yellow
+        Write-Host "   На основе последнего тега: $latestTag" -ForegroundColor Gray
+        
+        return @{
+            CurrentLatest = $latestTag
+            NextSuggested = $nextTag
+            MajorVersion = $major
+            MinorVersion = $minor
+            AllTags = $currentTags.AllVersionTags
+        }
+    }
+    
+    return $null
+}
+Примеры использования
+powershell
+# Установите ваши данные
+$Workspace = "your-workspace"
+$RepoSlug = "your-repo"
+$Token = "your-token"
+
+# 1. Простой поиск последнего тега
+Write-Host "=== ПРОСТОЙ ПОИСК ===" -ForegroundColor Cyan
+$result = Get-LatestVersionTag -Workspace $Workspace -RepoSlug $RepoSlug -Token $Token
+
+if ($result) {
+    Write-Host "`n📋 Все теги: $($result.AllVersionTags -join ', ')" -ForegroundColor Gray
+    Write-Host "🎯 Последний тег: $($result.LatestTag)" -ForegroundColor Green
+    
+    # Детали последнего тега
+    if ($result.LatestTagInfo) {
+        Write-Host "`n📅 Дата создания: $($result.LatestTagInfo.date)" -ForegroundColor Gray
+        Write-Host "🔗 Коммит: $($result.LatestTagInfo.target.hash)" -ForegroundColor Gray
+    }
+}
+
+# 2. Расширенный поиск
+Write-Host "`n=== РАСШИРЕННЫЙ ПОИСК ===" -ForegroundColor Cyan
+$advancedResult = Get-VersionTagsAdvanced -Workspace $Workspace -RepoSlug $RepoSlug -Token $Token -IncludeDetails
+
+if ($advancedResult) {
+    Write-Host "`n🎯 Результаты:" -ForegroundColor Green
+    Write-Host "   Последний тег: $($advancedResult.LatestTag)" -ForegroundColor Yellow
+    Write-Host "   Всего тегов: $($advancedResult.Count)" -ForegroundColor Gray
+    
+    # Показываем последние 5 тегов
+    Write-Host "`n📈 Последние 5 тегов:" -ForegroundColor Cyan
+    $advancedResult.AllVersionTags | Select-Object -Last 5 | ForEach-Object { 
+        Write-Host "   🏷️  $_" -ForegroundColor Gray 
+    }
+}
+
+# 3. Поиск следующего тега
+Write-Host "`n=== ПОИСК СЛЕДУЮЩЕГО ТЕГА ===" -ForegroundColor Cyan
+$nextTag = Get-NextVersionTag -Workspace $Workspace -RepoSlug $RepoSlug -Token $Token
+
+if ($nextTag) {
+    Write-Host "`n🎯 Рекомендация по версионированию:" -ForegroundColor Green
+    Write-Host "   Текущий последний: $($nextTag.CurrentLatest)" -ForegroundColor Gray
+    Write-Host "   Следующий тег: $($nextTag.NextSuggested)" -ForegroundColor Yellow
+}
+Для разных паттернов тегов
+powershell
+# Для тегов типа "RELEASE-1.2.3"
+$result1 = Get-LatestVersionTag -Workspace $Workspace -RepoSlug $RepoSlug -Token $Token -Pattern "RELEASE-\d+"
+
+# Для тегов типа "v1.2.3"  
+$result2 = Get-LatestVersionTag -Workspace $Workspace -RepoSlug $RepoSlug -Token $Token -Pattern "v\d+"
+
+# Для тегов типа "build-123"
+$result3 = Get-LatestVersionTag -Workspace $Workspace -RepoSlug $RepoSlug -Token $Token -Pattern "build-\d+"
+Ключевые особенности:
+
+✅ Фильтрует только теги по заданному шаблону (V323.00, V323.01 и т.д.)
+
+✅ Создает массив только с ID тегов
+
+✅ Сортирует теги как версии (не как строки)
+
+✅ Находит самый последний тег
+
+✅ Возвращает как массив всех тегов, так и последний тег
+
+✅ Поддерживает разные паттерны именования
