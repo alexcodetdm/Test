@@ -1458,3 +1458,136 @@ $result3 = Get-LatestVersionTag -Workspace $Workspace -RepoSlug $RepoSlug -Token
 ✅ Возвращает как массив всех тегов, так и последний тег
 
 ✅ Поддерживает разные паттерны именования
+
+
+-------------------------------------------------------------
+--------------------------------------------------------------
+--------------------------------------------------------------
+---------------------------------------------------------------
+
+Для определения принадлежности тега к ветке через Bitbucket API есть несколько подходов:
+
+1. Получить коммит тега и найти ветки, содержащие его
+bash
+# Получить информацию о теге
+curl -u username:password "https://api.bitbucket.org/2.0/repositories/{workspace}/{repo}/refs/tags/{tag_name}"
+Затем использовать полученный хеш коммита:
+
+bash
+# Найти ветки, содержащие этот коммит
+curl -u username:password "https://api.bitbucket.org/2.0/repositories/{workspace}/{repo/commit/{commit_hash}/branches"
+2. Использование GraphQL API (рекомендуется)
+graphql
+query {
+  repository(slug: "repo-name", owner: "workspace") {
+    refs(prefix: "refs/tags/", query: "tag-name") {
+      nodes {
+        name
+        target {
+          ... on Commit {
+            hash
+            branches {
+              nodes {
+                name
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+3. Полный пример на Python
+python
+import requests
+import base64
+
+def get_tag_branches(workspace, repo, tag_name, username, password):
+    # Аутентификация
+    auth = base64.b64encode(f"{username}:{password}".encode()).decode()
+    headers = {"Authorization": f"Basic {auth}"}
+    
+    base_url = f"https://api.bitbucket.org/2.0/repositories/{workspace}/{repo}"
+    
+    try:
+        # 1. Получить информацию о теге
+        tag_response = requests.get(f"{base_url}/refs/tags/{tag_name}", headers=headers)
+        tag_response.raise_for_status()
+        tag_data = tag_response.json()
+        
+        # 2. Получить хеш коммита тега
+        commit_hash = tag_data['target']['hash']
+        
+        # 3. Найти ветки, содержащие этот коммит
+        branches_response = requests.get(
+            f"{base_url}/commit/{commit_hash}/branches", 
+            headers=headers
+        )
+        branches_response.raise_for_status()
+        branches_data = branches_response.json()
+        
+        # 4. Вернуть список веток
+        branches = [branch['name'] for branch in branches_data['values']]
+        return branches
+        
+    except requests.exceptions.RequestException as e:
+        print(f"Ошибка: {e}")
+        return []
+
+# Использование
+workspace = "your-workspace"
+repo = "your-repo"
+tag_name = "v1.0.0"
+username = "your-username"
+password = "your-password"  # или использовать app password
+
+branches = get_tag_branches(workspace, repo, tag_name, username, password)
+print(f"Тег {tag_name} находится в ветках: {branches}")
+4. Использование App Passwords (безопаснее)
+python
+import os
+import requests
+
+def get_tag_branches_app_password(workspace, repo, tag_name):
+    # Использование переменных окружения
+    username = os.getenv('BITBUCKET_USERNAME')
+    app_password = os.getenv('BITBUCKET_APP_PASSWORD')
+    
+    auth = (username, app_password)
+    base_url = f"https://api.bitbucket.org/2.0/repositories/{workspace}/{repo}"
+    
+    # Получить тег
+    tag_response = requests.get(f"{base_url}/refs/tags/{tag_name}", auth=auth)
+    tag_data = tag_response.json()
+    
+    commit_hash = tag_data['target']['hash']
+    
+    # Получить ветки
+    branches_response = requests.get(
+        f"{base_url}/commit/{commit_hash}/branches", 
+        auth=auth
+    )
+    branches_data = branches_response.json()
+    
+    return [branch['name'] for branch in branches_data['values']]
+5. Использование библиотеки bitbucket-api
+python
+from bitbucket import Bitbucket
+
+bb = Bitbucket('username', 'app_password')
+workspace = 'your-workspace'
+repo_slug = 'your-repo'
+
+# Получить тег
+tag = bb.get_tag(workspace, repo_slug, 'tag-name')
+commit_hash = tag.target.hash
+
+# Получить ветки, содержащие коммит
+branches = bb.get_branches_containing_commit(workspace, repo_slug, commit_hash)
+6. Через Bitbucket CLI (альтернатива)
+bash
+# Установить Bitbucket CLI
+pip install bitbucket-cli
+
+# Использование
+bb repositories tags get --workspace {workspace} --repo_slug {repo} --tag {tag_name}
