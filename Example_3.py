@@ -206,3 +206,103 @@ html += f"""
     <div class="label">✅ Проанализировано строк</div>
 </div>
 """
+
+
+# ---------- Шаг 7: Формируем финальный результат ----------
+result = {
+    'tasks': defaultdict(lambda: {'files': []}),
+    'commits': [],
+    'files': list(lines_to_check.keys()),
+    'unlinked_commits': [],
+    'declared_tasks': RELEASE_TASKS,
+    'skipped_files': skipped_files,
+    'status': {
+        'found': [],
+        'not_found': [],
+        'extra': []
+    },
+    'stats': {
+        'moved_lines': 0,
+        'analyzed_lines': 0,
+        'total_lines': 0
+    }
+}
+
+# ---------- СНАЧАЛА собираем ВСЕ задачи из ВСЕХ строк (включая перемещённые) ----------
+all_tasks_in_code = set()
+
+for file, blame_map in file_blame_cache.items():
+    for line_num in lines_to_check[file]:
+        blame_info = blame_map.get(line_num)
+        if not blame_info:
+            continue
+        
+        commit_hash = blame_info['commit']
+        if commit_hash in commit_cache:
+            task_id = commit_cache[commit_hash]['task_id']
+            if task_id:
+                all_tasks_in_code.add(task_id)
+
+# ---------- ТЕПЕРЬ вычисляем статусы на основе ВСЕХ задач ----------
+declared_set = set(RELEASE_TASKS)
+
+# Найденные (пересечение заявленных и всех найденных в коде)
+result['status']['found'] = list(declared_set & all_tasks_in_code)
+
+# Не найденные (заявлены, но отсутствуют в коде)
+result['status']['not_found'] = list(declared_set - all_tasks_in_code)
+
+# Лишние (найдены в коде, но не заявлены) - теперь работают корректно!
+result['status']['extra'] = list(all_tasks_in_code - declared_set)
+
+# ---------- ПОТОМ собираем ДЕТАЛЬНЫЕ изменения ТОЛЬКО для неперемещённых строк ----------
+tasks_data = defaultdict(lambda: defaultdict(list))
+found_in_code_filtered = set()
+moved_count = 0
+analyzed_count = 0
+
+for file, blame_map in file_blame_cache.items():
+    for line_num in lines_to_check[file]:
+        blame_info = blame_map.get(line_num)
+        if not blame_info:
+            continue
+        
+        commit_hash = blame_info['commit']
+        is_moved = blame_info.get('is_moved', False)
+        
+        # Исключаем перемещённые строки из детального анализа
+        if is_moved:
+            moved_count += 1
+            continue
+        
+        analyzed_count += 1
+        
+        if commit_hash not in commit_cache:
+            continue
+        
+        task_id = commit_cache[commit_hash]['task_id']
+        if not task_id:
+            if commit_hash not in result['unlinked_commits']:
+                result['unlinked_commits'].append(commit_hash)
+            continue
+        
+        found_in_code_filtered.add(task_id)
+        tasks_data[task_id][file].append({
+            'line': line_num,
+            'commit': commit_hash
+        })
+
+# Сохраняем статистику
+result['stats']['moved_lines'] = moved_count
+result['stats']['analyzed_lines'] = analyzed_count
+result['stats']['total_lines'] = moved_count + analyzed_count
+
+# Формируем структуру для HTML (только неперемещённые строки)
+for task_id, files_data in tasks_data.items():
+    task_files = []
+    for file_path, changes in files_data.items():
+        task_files.append({
+            'file': file_path,
+            'changes': changes
+        })
+    result['tasks'][task_id] = {'files': task_files}
