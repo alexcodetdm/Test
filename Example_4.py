@@ -101,6 +101,33 @@ def find_duplicate_blocks(lines, min_block_size=3):
     return duplicate_lines
  
  
+def build_force_skip_map(force_skip):
+    """
+    Превращает список принудительных исключений в удобный для поиска словарь.
+ 
+    force_skip — список элементов вида:
+        (file_path, line_number)              — одна строка
+        (file_path, (start_line, end_line))    — диапазон строк, включительно
+ 
+    Пример:
+        FORCE_SKIP = [
+            ('path/to/file.py', 42),
+            ('path/to/file.py', (100, 115)),
+            ('other/file.py', 7),
+        ]
+ 
+    Возвращает dict: file_path -> set(номера строк).
+    """
+    skip_map = defaultdict(set)
+    for file_path, line_spec in force_skip:
+        if isinstance(line_spec, tuple):
+            start, end = line_spec
+            skip_map[file_path].update(range(start, end + 1))
+        else:
+            skip_map[file_path].add(line_spec)
+    return skip_map
+ 
+ 
 def filter_out_copied_lines(changed_lines, duplicate_lines_map):
     """
     Исключает из changed_lines номера строк, которые являются частью
@@ -126,8 +153,16 @@ def filter_out_copied_lines(changed_lines, duplicate_lines_map):
     return filtered, excluded
  
  
-def analyze_file(base, target, file_path, min_block_size=3):
+def analyze_file(base, target, file_path, min_block_size=3, force_skip_map=None):
+    """
+    force_skip_map — результат build_force_skip_map(). Строки из него
+    исключаются из анализа ещё до поиска дублей (принудительно, вручную).
+    """
+    force_skip_lines = (force_skip_map or {}).get(file_path, set())
+ 
     changed = get_changed_line_numbers(base, target, file_path)
+    changed = [ln for ln in changed if ln not in force_skip_lines]
+ 
     file_lines = get_file_content_lines(target, file_path)
     dup_map = find_duplicate_blocks(file_lines, min_block_size=min_block_size)
  
@@ -139,11 +174,20 @@ def analyze_file(base, target, file_path, min_block_size=3):
  
     return {
         'blame_by_line': result,
-        'excluded_as_copies': excluded_as_copies,  # для логов/отладки
+        'excluded_as_copies': excluded_as_copies,        # найдено автоматически, как копипаст
+        'excluded_forced': sorted(force_skip_lines),      # исключено вручную через FORCE_SKIP
     }
  
  
 if __name__ == '__main__':
     import json
-    res = analyze_file('main', 'HEAD', 'path/to/file.py')
+ 
+    # Задаём здесь принудительные исключения на старте.
+    FORCE_SKIP = [
+        # ('path/to/file.py', 42),
+        # ('path/to/file.py', (100, 115)),
+    ]
+    force_skip_map = build_force_skip_map(FORCE_SKIP)
+ 
+    res = analyze_file('main', 'HEAD', 'path/to/file.py', force_skip_map=force_skip_map)
     print(json.dumps(res, indent=2, ensure_ascii=False))
